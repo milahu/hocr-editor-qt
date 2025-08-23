@@ -116,3 +116,11 @@ now the status bar says
 "Loaded 20 ocrx_word spans"
 
 but now i dont see any words in the GUI
+
+---
+
+lets go the native Qt route for better performance.
+basically, every word is a box with text.
+the box must be draggable (on the top-left corner)
+and the box must be resizable (on the bottom-right corner).
+the word text must be editable in-place (via doubleclick)
