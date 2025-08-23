@@ -124,3 +124,30 @@ basically, every word is a box with text.
 the box must be draggable (on the top-left corner)
 and the box must be resizable (on the bottom-right corner).
 the word text must be editable in-place (via doubleclick)
+
+---
+
+nice. but ...
+
+the font-size is too small, the text is unreadable.
+
+i cannot move words by clicking and dragging the top-left corner.
+
+i cannot resize word bboxes by clicking and dragging the bottom-right corner.
+
+when i click on a word, the right view does not update to show the id / text / bbox / x_wconf values of that word.
+
+i had to replace
+
+```diff
+-from tree_sitter_languages import get_language # broken
++from tree_sitter_language_pack import get_language
+```
+
+and
+
+```diff
+-        self.parser = Parser()
+-        self.parser.set_language(HTML_LANGUAGE)
++        self.parser = Parser(HTML_LANGUAGE)
+```
