@@ -126,7 +126,9 @@ class HocrSyntax:
             return "", (0, 0)
         val_node = None
         for ch in attr_node.children:
-            if ch.type == 'attribute_value':
+            # print("ch.type", repr(ch.type))
+            # if ch.type == 'attribute_value':
+            if ch.type == 'quoted_attribute_value':
                 val_node = ch
                 break
         if val_node is None:
@@ -163,7 +165,11 @@ class HocrSyntax:
         # class attribute contains ocrx_word
         class_attr = self._find_attribute(start_tag, 'class')
         class_val, _ = self._attribute_value_text_and_range(class_attr)
-        if 'ocrx_word' not in class_val.split():
+        # print("class_val", repr(class_val))
+        # normalize quotes and whitespace
+        cv = class_val.strip().strip('\"\'')
+        # print("cv", repr(cv))
+        if 'ocrx_word' not in cv.split():
             return None
         # id attribute
         id_attr = self._find_attribute(start_tag, 'id')
