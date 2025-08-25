@@ -346,3 +346,18 @@ no, `parser.find_pages()` always returns an empty list
 
 ok, now in darkmode, the bbox rectangles are not visible (black lines on black ground?)
 like with text color, it should use the theme foreground color as rectangle line color
+
+---
+
+ok, now the page view needs a zoom function.
+the initial view should be "fit width" (page width = page view width)
+
+---
+
+> Ctrl + mouse wheel zoom in/out
+
+this does not work yet.
+expected shortcuts:
+Ctrl + + = zoom in
+Ctrl + - = zoom out
+Ctrl + 0 = reset zoom to "fit width"

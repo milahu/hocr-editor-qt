@@ -19,6 +19,10 @@ from PySide6.QtGui import QBrush, QColor, QPen, QFont, QMouseEvent
 from PySide6.QtGui import (
     QPixmap,
     QImage,
+    QPainter,
+    QTransform,
+    QShortcut,
+    QKeySequence,
 )
 from PySide6.QtCore import QRectF, Qt, QPointF
 from PySide6.QtCore import (
@@ -199,12 +203,52 @@ class Inspector(QWidget):
         self.labels["x_wconf"].setText(f"x_wconf: {word_item.word.x_wconf}")
 
 
+class PageView(QGraphicsView):
+    def __init__(self, scene):
+        super().__init__(scene)
+        self.setRenderHint(QPainter.Antialiasing)
+        self.setDragMode(QGraphicsView.ScrollHandDrag)
+        self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
+        self._zoom = 0
+
+    def fit_width(self):
+        """Scale so that scene width fits view width."""
+        if not self.scene() or self.scene().width() == 0:
+            return
+        view_width = self.viewport().width()
+        scene_width = self.scene().width()
+        factor = view_width / scene_width
+        self.setTransform(QTransform())  # reset
+        self.scale(factor, factor)
+        self._zoom = 0
+
+    def wheelEvent(self, event):
+        """Zoom with Ctrl+wheel"""
+        if event.modifiers() & Qt.ControlModifier:
+            delta = event.angleDelta().y()
+            if delta > 0:
+                self.zoom_in()
+            else:
+                self.zoom_out()
+            event.accept()
+        else:
+            super().wheelEvent(event)
+
+    def zoom_in(self):
+        self._zoom += 1
+        self.scale(1.2, 1.2)
+
+    def zoom_out(self):
+        self._zoom -= 1
+        self.scale(1/1.2, 1/1.2)
+
+
 class HocrEditor(QMainWindow):
     def __init__(self, hocr_file):
         super().__init__()
         self.hocr_file = hocr_file  # remember original filename
         self.scene = QGraphicsScene()
-        self.view = QGraphicsView(self.scene)
+        self.view = PageView(self.scene)
         self.setCentralWidget(self.view)
 
         # create Inspector dock
@@ -218,6 +262,11 @@ class HocrEditor(QMainWindow):
 
         self.words = []
         self.load_hocr(hocr_file)
+
+        # --- zoom shortcuts ---
+        QShortcut(QKeySequence("Ctrl++"), self, self.view.zoom_in)
+        QShortcut(QKeySequence("Ctrl+-"), self, self.view.zoom_out)
+        QShortcut(QKeySequence("Ctrl+0"), self, self.view.fit_width)
 
     def _create_menubar(self):
         menubar = self.menuBar()
@@ -258,6 +307,8 @@ class HocrEditor(QMainWindow):
         for word in self.words:
             item = WordItem(word, self.inspector.update_word, parser_update_cb)
             self.scene.addItem(item)
+
+        QTimer.singleShot(0, self.view.fit_width)  # fit width after layout
 
     def save_hocr(self):
         """Save to original file."""
