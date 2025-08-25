@@ -406,3 +406,7 @@ class HocrEditor(QMainWindow):
 ```
 
 so it should use the actual current window width
+
+---
+
+ok, the main window should start in "maximized" size

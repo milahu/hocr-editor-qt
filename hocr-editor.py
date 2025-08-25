@@ -312,12 +312,6 @@ class HocrEditor(QMainWindow):
         splitter = QSplitter()
         splitter.addWidget(self.view)
         splitter.addWidget(self.source_editor)
-        # Initial width ratio: 60% : 40%
-        current_width = self.width()
-        splitter.setSizes([int(current_width * 0.6), int(current_width * 0.4)])
-        # proportional resizing behavior after initial sizing
-        splitter.setStretchFactor(0, 3)  # 60%
-        splitter.setStretchFactor(1, 2)  # 40%
 
         container = QWidget()
         layout = QVBoxLayout(container)
@@ -332,6 +326,19 @@ class HocrEditor(QMainWindow):
         QShortcut(QKeySequence("Ctrl++"), self, self.view.zoom_in)
         QShortcut(QKeySequence("Ctrl+-"), self, self.view.zoom_out)
         QShortcut(QKeySequence("Ctrl+0"), self, self.view.fit_width)
+
+        self.showMaximized() # use full screen size
+
+        # Initial width ratio: 60% : 40%
+        current_width = self.width()
+        splitter.setSizes([int(current_width * 0.6), int(current_width * 0.4)])
+        # proportional resizing behavior after initial sizing
+        splitter.setStretchFactor(0, 3)  # 60%
+        splitter.setStretchFactor(1, 2)  # 40%
+
+        # TODO better
+        for delay in [1, 10, 20, 50, 100, 200, 500]:
+            QTimer.singleShot(delay, self.view.fit_width)  # fit width after layout
 
     def _create_menubar(self):
         menubar = self.menuBar()
@@ -370,7 +377,7 @@ class HocrEditor(QMainWindow):
 
         self.load_words()
 
-        QTimer.singleShot(0, self.view.fit_width)  # fit width after layout
+        # QTimer.singleShot(0, self.view.fit_width)  # fit width after layout
 
     def load_words(self):
         """Populate the scene with WordItems from parser"""
