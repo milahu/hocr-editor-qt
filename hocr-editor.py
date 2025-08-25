@@ -11,10 +11,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QBrush, QColor, QPen, QFont, QMouseEvent
 from PySide6.QtCore import QRectF, Qt, QPointF
 
-from tree_sitter import Parser
-from tree_sitter_language_pack import get_language
-
-HTML_LANGUAGE = get_language("html")
+from hocr_parser import HocrParser
 
 bbox_re = re.compile(r"bbox (\d+) (\d+) (\d+) (\d+)")
 xwconf_re = re.compile(r"x_wconf (\d+)")
@@ -147,44 +144,13 @@ class HocrEditor(QMainWindow):
         self.load_hocr(hocr_file)
 
     def load_hocr(self, hocr_file):
-        src = open(hocr_file, "r", encoding="utf-8").read()
+        with open(hocr_file, "r", encoding="utf-8") as f:
+            source = f.read()
 
-        parser = Parser(HTML_LANGUAGE)
-        tree = parser.parse(bytes(src, "utf8"))
-        root = tree.root_node
-
-        def walk(node):
-            if node.type == "start_tag" and any(
-                (c.type == "attribute" and
-                # FIXME AttributeError: 'NoneType' object has no attribute 'text'
-                 c.child_by_field_name("name").text.decode() == "class" and
-                 "ocrx_word" in c.text.decode())
-                for c in node.children
-            ):
-                # Extract id, title, text
-                attrs = {
-                    c.child_by_field_name("name").text.decode(): c.text.decode()
-                    for c in node.children if c.type == "attribute"
-                }
-                word_id = attrs.get("id", "unknown")
-                title = attrs.get("title", "")
-                bbox_m = bbox_re.search(title)
-                if not bbox_m:
-                    return
-                bbox = tuple(map(int, bbox_m.groups()))
-                xwconf_m = xwconf_re.search(title)
-                xwconf = int(xwconf_m.group(1)) if xwconf_m else 0
-                # Grab text from next text node
-                text_node = node.next_named_sibling
-                text_val = text_node.text.decode().strip() if text_node else ""
-                item = WordItem(word_id, text_val, bbox, xwconf, self.inspector.update_word)
-                self.scene.addItem(item)
-                self.words.append(item)
-
-            for ch in node.children:
-                walk(ch)
-
-        walk(root)
+        parser = HocrParser(source)
+        self.words = parser.find_words()
+        # FIXME self.words is empty list
+        print("self.words", self.words)
 
 
 if __name__ == "__main__":
