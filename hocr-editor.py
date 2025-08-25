@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import sys
 import re
 from PySide6.QtWidgets import (
@@ -15,16 +16,36 @@ from PySide6.QtWidgets import (
     QStyle,
 )
 from PySide6.QtGui import QBrush, QColor, QPen, QFont, QMouseEvent
+from PySide6.QtGui import (
+    QPixmap,
+    QImage,
+)
 from PySide6.QtCore import QRectF, Qt, QPointF
 from PySide6.QtCore import (
     QTimer,
     QSizeF,
 )
 
-from hocr_parser import HocrParser
+from hocr_parser import HocrParser, Word
 
 bbox_re = re.compile(r"bbox (\d+) (\d+) (\d+) (\d+)")
 xwconf_re = re.compile(r"x_wconf (\d+)")
+
+
+# --- utilities for images / dark mode ---
+def _extract_image_from_title(title: str) -> str:
+    m = re.search(r'image\s+"([^"]+)"', title)
+    return m.group(1) if m else None
+
+def _is_dark_mode(view) -> bool:
+    pal = view.palette()
+    bg = pal.color(view.backgroundRole())
+    return (0.299*bg.red() + 0.587*bg.green() + 0.114*bg.blue()) < 128
+
+def _invert_pixmap(pixmap: QPixmap) -> QPixmap:
+    img = pixmap.toImage().convertToFormat(QImage.Format_ARGB32)
+    img.invertPixels()
+    return QPixmap.fromImage(img)
 
 
 class WordItem(QGraphicsRectItem):
@@ -209,6 +230,19 @@ class HocrEditor(QMainWindow):
         def parser_update_cb(word_id, text=None, bbox=None):
             self.parser.update(word_id, text=text, bbox=bbox)
 
+        # --- add page images ---
+        for page in self.parser.find_pages():
+            # print("page", page)
+            img_path = _extract_image_from_title(page.title_value)
+            if img_path and os.path.exists(img_path):
+                pixmap = QPixmap(img_path)
+                if _is_dark_mode(self.view):
+                    pixmap = _invert_pixmap(pixmap)
+                self.scene.addPixmap(pixmap).setZValue(-1)
+            # FIXME support hocr files with multiple pages
+            break # stop after first page
+
+        # --- add words ---
         for word in self.words:
             item = WordItem(word, self.inspector.update_word, parser_update_cb)
             self.scene.addItem(item)

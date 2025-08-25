@@ -314,3 +314,30 @@ it seems like all words are placed in the top-left corner of the page
 
 ok, now update_word_bbox is fired too often (on every pixel i move)
 (update_word_bbox should only be fired after i have finished moving a word)
+
+---
+
+ok, lets add the page background image, behind all the text nodes.
+in the hocr file, this is declared like
+
+```html
+<div class='ocr_page' id='page_1' title='image "005.jpg"; bbox 0 0 1590 2487; ppageno 0; scan_res 300 300'>
+```
+
+since we use the qt theme foreground color as text color, we have to invert the image colors in dark mode (so we get white text on black ground)
+
+---
+
+> I can write a full patch for WordItem + HocrEditor that integrates the page background, dark mode inversion, and proper word placement, so you can drop it in and immediately see the page behind the words.
+
+yes
+
+---
+
+AttributeError: 'HocrParser' object has no attribute 'find_elements'
+
+---
+
+> This will correctly extract `<div class='ocr_page'>` elements
+
+no, `parser.find_pages()` always returns an empty list

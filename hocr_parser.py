@@ -129,6 +129,73 @@ class HocrParser:
     def find_words(self) -> List[Word]:
         return list(self._index_words().values())
 
+    def find_pages(self) -> List[Word]:
+        pages = []
+        stack = [self.tree.root_node]
+        sb = self.source_bytes
+        while stack:
+            n = stack.pop()
+            # Only consider element nodes
+            if n.type in ("element", "html_element", "div"):
+                page = self._extract_page_node(n, sb)
+                if page:
+                    pages.append(page)
+            stack.extend(n.children)
+        return pages
+
+    def _extract_page_node(self, element, sb: bytes) -> Optional[Word]:
+        # Get start tag or STag
+        if self._lang == "html":
+            start_tag = next((c for c in element.children if c.type=="start_tag"), None)
+            if not start_tag:
+                return None
+            attrs = {}
+            for c in start_tag.children:
+                if c.type=="attribute":
+                    n,v,vr = self._read_html_attribute(c, sb)
+                    if n: attrs[n] = (v,vr)
+            cls_val = attrs.get("class", ("", (0,0)))[0]
+            if "ocr_page" not in cls_val.split(): return None
+            title_val, title_range = attrs.get("title", ("", (0,0)))
+            bbox,_ = _parse_title(title_val)
+            if not bbox: bbox=(0,0,0,0)
+            return Word(
+                id=attrs.get("id", ("", (0,0)))[0],
+                text="",
+                bbox=bbox,
+                x_wconf=None,
+                title_value=title_val,
+                text_range=(0,0),
+                title_value_range=title_range,
+                id_value_range=attrs.get("id",(None,(0,0)))[1],
+                element_range=(element.start_byte, element.end_byte)
+            )
+        else:  # xml / xhtml
+            stags = [c for c in element.children if c.type=="STag"]
+            if not stags: return None
+            st = stags[0]
+            attrs = {}
+            for c in st.children:
+                if c.type=="Attribute":
+                    n,v,vr = self._read_xml_attribute(c, sb)
+                    if n: attrs[n]=(v,vr)
+            cls_val = attrs.get("class", ("", (0,0)))[0]
+            if "ocr_page" not in cls_val.split(): return None
+            title_val, title_range = attrs.get("title", ("", (0,0)))
+            bbox,_ = _parse_title(title_val)
+            if not bbox: bbox=(0,0,0,0)
+            return Word(
+                id=attrs.get("id", ("", (0,0)))[0],
+                text="",
+                bbox=bbox,
+                x_wconf=None,
+                title_value=title_val,
+                text_range=(0,0),
+                title_value_range=title_range,
+                id_value_range=attrs.get("id",(None,(0,0)))[1],
+                element_range=(element.start_byte, element.end_byte)
+            )
+
     def get_word(self, word_id: str) -> Optional[Word]:
         return self._index_words().get(word_id)
 
