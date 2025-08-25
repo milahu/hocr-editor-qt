@@ -11,6 +11,8 @@ from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
     QMessageBox,
+    QStyleOptionGraphicsItem,
+    QStyle,
 )
 from PySide6.QtGui import QBrush, QColor, QPen, QFont, QMouseEvent
 from PySide6.QtCore import QRectF, Qt, QPointF
@@ -46,7 +48,6 @@ class WordItem(QGraphicsRectItem):
 
         # Text
         self.text_item = QGraphicsSimpleTextItem(word.text, self)
-        self.text_item.setBrush(QColor("black"))
         self._update_text_position()
 
         # Resize handle
@@ -61,6 +62,23 @@ class WordItem(QGraphicsRectItem):
         # Track drag/resizing
         self._resizing = False
         self._drag_offset = QPointF(0, 0)
+
+    def set_theme_text_color(self):
+        """Call this after item is in a scene."""
+        # print("set_theme_text_color scene", self.scene())
+        if self.scene() and self.scene().views():
+            # print("setting text color")
+            palette = self.scene().views()[0].palette()
+            text_color = palette.color(palette.ColorRole.Text)
+            self.text_item.setBrush(QBrush(text_color))
+
+    # Override QGraphicsItem hook when added to scene
+    def itemChange(self, change, value):
+        # print("itemChange", change, value)
+        # if change == QGraphicsItem.ItemSceneChange:
+        if change == QGraphicsItem.ItemSceneHasChanged:
+            self.set_theme_text_color()
+        return super().itemChange(change, value)
 
     # ---------------- Helpers ----------------
     def _update_text_position(self):

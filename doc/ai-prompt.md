@@ -242,3 +242,65 @@ dragging the `QGraphicsRectItem` seems to have no effect on `self.rect()`
 > Do you want me to rewrite the full WordItem mouse events and bbox update so both dragging and resizing correctly update the Word.bbox and parser?
 
 yes
+
+---
+
+now the word text is not readable (black on black in darkmode),
+and update_word_bbox is fired too often (on every pixel i move)
+(update_word_bbox should only be fired after i have finished moving a word)
+
+---
+
+> we can use white text with a thin black outline
+
+what?
+no, simply use foreground and background colors from my current qt theme
+
+---
+
+AttributeError: 'PySide6.QtWidgets.QGraphicsSimpleTextItem' object has no attribute 'setDefaultTextColor'
+
+---
+
+```
+    palette = self.scene().views()[0].palette()
+              ^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'views'
+```
+
+---
+
+```py
+    # Override QGraphicsItem hook when added to scene
+    def itemChange(self, change, value):
+        print("itemChange", change, value)
+        if change == QGraphicsItem.ItemSceneChange:
+            self.set_theme_text_color()
+        return super().itemChange(change, value)
+```
+
+```
+itemChange GraphicsItemChange.ItemVisibleHasChanged True
+Error calling Python override of QGraphicsRectItem::sceneEvent(): TypeError: 'bool' object is not callable
+```
+---
+
+no, now in set_theme_text_color, `self.scene()` is still always `None`
+
+---
+
+ok, now there is a scene. but ...
+
+'PySide6.QtGui.QPalette' object has no attribute 'Text'
+
+```
+    def set_theme_text_color(self):
+        """Call this after item is in a scene."""
+        print("set_theme_text_color scene", self.scene())
+        if self.scene() and self.scene().views():
+            print("setting text color")
+            palette = self.scene().views()[0].palette()
+            # FIXME 'PySide6.QtGui.QPalette' object has no attribute 'Text'
+            text_color = palette.color(palette.Text)
+            self.text_item.setBrush(QBrush(text_color))
+```
