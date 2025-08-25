@@ -188,3 +188,7 @@ ok, now there is something wrong with `class HocrParser` because `word.bbox == N
 ---
 
 ok, now when i edit a word text and hit enter, i get a segfault
+
+---
+
+nope, i still get a segfault when i edit word text

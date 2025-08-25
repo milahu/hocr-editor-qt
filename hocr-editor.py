@@ -12,6 +12,9 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QBrush, QColor, QPen, QFont, QMouseEvent
 from PySide6.QtCore import QRectF, Qt, QPointF
+from PySide6.QtCore import (
+    QTimer,
+)
 
 from hocr_parser import HocrParser
 
@@ -129,23 +132,24 @@ class WordItem(QGraphicsRectItem):
             # already editing → ignore
             pass
 
+    def commit_text(self, new_text):
+        # update Word + graphics
+        self.word.text = new_text
+        self.text_item.setText(new_text)
+        self._update_text_position()
+        # refresh inspector
+        self.inspector_update_cb(self)
+
     def finish_editing(self):
         if self.editor:
             line_edit = self.editor.widget()
             new_text = line_edit.text()
-
-            # update Word + graphics
-            self.word.text = new_text
-            self.text_item.setText(new_text)
-            self._update_text_position()
-
+            if new_text != self.word.text:
+                # Delay update until after editor fully closes
+                QTimer.singleShot(0, lambda: self.commit_text(new_text))
             # cleanup editor
             self.scene().removeItem(self.editor)
             self.editor = None
-
-            # notify inspector
-            # self.inspector_update_cb(self.word)
-            self.inspector_update_cb(self)
 
     def eventFilter(self, obj, event):
         if obj is self.text_item:
