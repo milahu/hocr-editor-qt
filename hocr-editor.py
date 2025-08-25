@@ -361,8 +361,12 @@ class HocrEditor(QMainWindow):
         self.words = self.parser.find_words()
         # print("self.words", self.words)
 
-        def parser_update_cb(word_id, text=None, bbox=None):
-            self.parser.update(word_id, text=text, bbox=bbox)
+        self.load_words()
+
+        # QTimer.singleShot(0, self.view.fit_width)  # fit width after layout
+
+    def load_words(self):
+        """Populate the scene with WordItems from parser"""
 
         # --- add page images ---
         for page in self.parser.find_pages():
@@ -376,12 +380,6 @@ class HocrEditor(QMainWindow):
             # FIXME support hocr files with multiple pages
             break # stop after first page
 
-        self.load_words()
-
-        # QTimer.singleShot(0, self.view.fit_width)  # fit width after layout
-
-    def load_words(self):
-        """Populate the scene with WordItems from parser"""
         for word in self.parser.find_words():
             item = WordItem(
                 word,
