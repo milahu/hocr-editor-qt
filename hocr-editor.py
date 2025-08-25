@@ -475,18 +475,8 @@ class HocrEditor(QMainWindow):
         cursor.setPosition(end_char, QTextCursor.KeepAnchor)
         self.source_editor.setTextCursor(cursor)
 
-        # First, ensure the cursor is visible
-        self.source_editor.ensureCursorVisible()
-
-        # FIXME the vertical scroll is wrong in most cases
-        # Now try to center vertically
-        cursor_rect = self.source_editor.cursorRect(cursor)  # in viewport coordinates
-        scroll_bar = self.source_editor.verticalScrollBar()
-        viewport_height = self.source_editor.viewport().height()
-        target_scroll = scroll_bar.value() + int(cursor_rect.center().y() - viewport_height / 2)
-        target_scroll = max(0, min(target_scroll, scroll_bar.maximum()))
-        scroll_bar.setValue(target_scroll)
-
+        # center the cursor
+        self.source_editor.centerCursor()
 
     def on_word_changed(self, word_id: str, new_text: str = None, bbox=None):
         """Called when WordItem text changes"""
