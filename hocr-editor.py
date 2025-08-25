@@ -9,6 +9,8 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QLineEdit, QSplitter,
     QGraphicsEllipseItem,
     QDockWidget,
+    QFileDialog,
+    QMessageBox,
 )
 from PySide6.QtGui import QBrush, QColor, QPen, QFont, QMouseEvent
 from PySide6.QtCore import QRectF, Qt, QPointF
@@ -193,6 +195,7 @@ class Inspector(QWidget):
 class HocrEditor(QMainWindow):
     def __init__(self, hocr_file):
         super().__init__()
+        self.hocr_file = hocr_file  # remember original filename
         self.scene = QGraphicsScene()
         self.view = QGraphicsView(self.scene)
         self.setCentralWidget(self.view)
@@ -203,15 +206,30 @@ class HocrEditor(QMainWindow):
         dock.setWidget(self.inspector)
         self.addDockWidget(Qt.RightDockWidgetArea, dock)
 
+        # Menu bar
+        self._create_menubar()
+
         self.words = []
         self.load_hocr(hocr_file)
+
+    def _create_menubar(self):
+        menubar = self.menuBar()
+        file_menu = menubar.addMenu("File")
+
+        save_action = file_menu.addAction("Save")
+        save_action.setShortcut("Ctrl+S")
+        save_action.triggered.connect(self.save_hocr)
+
+        save_as_action = file_menu.addAction("Save As...")
+        save_as_action.setShortcut("Ctrl+Shift+S")
+        save_as_action.triggered.connect(self.save_hocr_as)
 
     def load_hocr(self, hocr_file):
         with open(hocr_file, "r", encoding="utf-8") as f:
             source = f.read()
 
-        parser = HocrParser(source)
-        self.words = parser.find_words()
+        self.parser = HocrParser(source)
+        self.words = self.parser.find_words()
         # print("self.words", self.words)
 
         def parser_update_cb(word_id, new_text):
@@ -220,6 +238,25 @@ class HocrEditor(QMainWindow):
         for word in self.words:
             item = WordItem(word, self.inspector.update_word, parser_update_cb)
             self.scene.addItem(item)
+
+    def save_hocr(self):
+        """Save to original file."""
+        if not self.hocr_file:
+            self.save_hocr_as()
+            return
+        try:
+            with open(self.hocr_file, "w", encoding="utf-8") as f:
+                f.write(self.parser.source)
+            # QMessageBox.information(self, "Saved", f"File saved to {self.hocr_file}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save file:\n{e}")
+
+    def save_hocr_as(self):
+        """Save to new file via dialog."""
+        filename, _ = QFileDialog.getSaveFileName(self, "Save HOCR File", "", "HOCR Files (*.hocr *.html *.xhtml);;All Files (*)")
+        if filename:
+            self.hocr_file = filename
+            self.save_hocr()
 
 
 if __name__ == "__main__":

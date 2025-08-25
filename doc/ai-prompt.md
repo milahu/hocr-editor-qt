@@ -198,3 +198,7 @@ nope, i still get a segfault when i edit word text
 nope, i still get a segfault when i edit word text
 
 here is my full hocr-editor.py
+
+---
+
+ok, now i need a way to save the new hocr file. add a menubar with "file > save"
