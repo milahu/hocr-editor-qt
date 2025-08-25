@@ -165,6 +165,9 @@ class WordItem(QGraphicsRectItem):
             self.editor = QGraphicsProxyWidget(self)
             self.editor.setWidget(line_edit)
             self.editor.setPos(2, 2)
+            # Select all text so user can overwrite immediately
+            line_edit.selectAll()
+            line_edit.setFocus(Qt.FocusReason.MouseFocusReason)
             line_edit.editingFinished.connect(self.finish_editing)
 
     def finish_editing(self):

@@ -361,3 +361,13 @@ expected shortcuts:
 Ctrl + + = zoom in
 Ctrl + - = zoom out
 Ctrl + 0 = reset zoom to "fit width"
+
+---
+
+ok, now when i doubleclick a word, it should select all text in the QLineEdit widget, so i can replace the whole word
+
+---
+
+> also focus the QLineEdit automatically
+
+yes
