@@ -180,3 +180,7 @@ ImportError: cannot import name 'QGraphicsLineEdit' from 'PySide6.QtWidgets'
 ---
 
 ok, now inspector_update_cb is missing
+
+---
+
+ok, now there is something wrong with `class HocrParser` because `word.bbox == None`

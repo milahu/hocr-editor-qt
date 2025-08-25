@@ -42,19 +42,43 @@ XML_LANG = get_language("xml")
 # ------------------------ utilities ------------------------
 
 
-_TITLE_BBOX_RE = re.compile(r"\bbox\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\b")
-_TITLE_XWCONF_RE = re.compile(r"\bx_wconf\s+(\d+)\b")
+_TITLE_BBOX_RE = re.compile(r"bbox\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)", re.IGNORECASE)
+_TITLE_XWCONF_RE = re.compile(r"x_wconf\s+(-?\d+)", re.IGNORECASE)
 
 
-def _parse_title(title_value: str) -> Tuple[Optional[Tuple[int, int, int, int]], Optional[int]]:
+def _parse_title(title_value: str):
+    """Return (bbox_tuple_or_None, x_wconf_or_None) from the raw 'title' value (no quotes)."""
+    s = (title_value or "").strip()
     bbox = None
-    m = _TITLE_BBOX_RE.search(title_value or "")
-    if m:
-        bbox = tuple(map(int, m.groups()))  # type: ignore
     xw = None
-    m2 = _TITLE_XWCONF_RE.search(title_value or "")
+
+    m = _TITLE_BBOX_RE.search(s)
+    if m:
+        try:
+            bbox = tuple(map(int, m.groups()))
+        except Exception:
+            bbox = None
+
+    m2 = _TITLE_XWCONF_RE.search(s)
     if m2:
-        xw = int(m2.group(1))
+        try:
+            xw = int(m2.group(1))
+        except Exception:
+            xw = None
+
+    # Fallback: token scan if regex failed
+    if bbox is None and "bbox" in s.lower():
+        try:
+            parts = re.split(r"[;\s]+", s)
+            for i, p in enumerate(parts):
+                if p.lower() == "bbox" and i + 4 < len(parts):
+                    bx = tuple(map(int, parts[i+1:i+5]))
+                    if len(bx) == 4:
+                        bbox = bx
+                        break
+        except Exception:
+            pass
+
     return bbox, xw
 
 
@@ -232,7 +256,7 @@ class HocrParser:
             text_range = (end_tag.start_byte, end_tag.start_byte)
 
         bbox, xw = _parse_title(title_val)
-        print("235 bbox", bbox)
+        assert not (bbox is None), f"failed to parse bbox from title {title_val!r}"
         return Word(
             id=id_val,
             text=text,
@@ -245,27 +269,28 @@ class HocrParser:
             element_range=(element.start_byte, element.end_byte),
         )
 
-    def _read_html_attribute(self, attr_node, sb: bytes) -> Tuple[Optional[str], str, Tuple[int, int]]:
-        """Returns (name, value_without_quotes, inner_value_range) for HTML grammar.
-        inner_value_range excludes surrounding quotes to preserve them on replace.
+    def _read_html_attribute(self, attr_node, sb: bytes):
         """
-        name_node = None
-        value_node = None
-        for c in attr_node.children:
-            if c.type in ("attribute_name", "property_identifier", "attribute_name_identifier", "name"):
-                name_node = c
-            elif c.type in ("quoted_attribute_value", "attribute_value", "unquoted_attribute_value"):
-                value_node = c
-            # Some grammars use field names
-        if hasattr(attr_node, "child_by_field_name"):
-            name_node = name_node or attr_node.child_by_field_name("name")
-            value_node = value_node or attr_node.child_by_field_name("value")
+        Returns (name, value_without_quotes, inner_range) for HTML grammar.
+        Handles multiple possible child node type names across html grammars.
+        """
+        name_node = getattr(attr_node, "child_by_field_name", lambda *_: None)("name")
+        value_node = getattr(attr_node, "child_by_field_name", lambda *_: None)("value")
+
+        if not name_node or not value_node:
+            # Fallback: scan children for common node type names
+            for c in attr_node.children:
+                if not name_node and c.type in ("attribute_name", "property_identifier", "attribute_name_identifier", "name"):
+                    name_node = c
+                if not value_node and c.type in ("quoted_attribute_value", "attribute_value", "unquoted_attribute_value", "string"):
+                    value_node = c
 
         if not name_node or not value_node:
             return None, "", (attr_node.start_byte, attr_node.start_byte)
 
         name = sb[name_node.start_byte:name_node.end_byte].decode()
         raw = sb[value_node.start_byte:value_node.end_byte].decode()
+
         inner_start, inner_end = _strip_quote_range(value_node.start_byte, value_node.end_byte, raw)
         value = sb[inner_start:inner_end].decode()
         return name, value, (inner_start, inner_end)
@@ -311,9 +336,7 @@ class HocrParser:
                     break
 
         bbox, xw = _parse_title(title_val)
-        print("314 bbox", bbox)
-        # FIXME bbox is None
-        assert not (bbox is None)
+        assert not (bbox is None), f"failed to parse bbox from title {title_val!r}"
         return Word(
             id=id_val,
             text=text,
@@ -326,18 +349,30 @@ class HocrParser:
             element_range=(element.start_byte, element.end_byte),
         )
 
-    def _read_xml_attribute(self, attr_node, sb: bytes) -> Tuple[Optional[str], str, Tuple[int, int]]:
+    def _read_xml_attribute(self, attr_node, sb: bytes):
+        """
+        Returns (name, value_without_quotes, inner_range) for XML grammar (tree-sitter-xml).
+        """
         name_node = None
         value_node = None
-        for c in attr_node.children:
-            if c.type == "Name":
-                name_node = c
-            elif c.type == "AttValue":
-                value_node = c
+
+        if hasattr(attr_node, "child_by_field_name"):
+            name_node = attr_node.child_by_field_name("name") or None
+            value_node = attr_node.child_by_field_name("value") or None
+
+        if not name_node or not value_node:
+            for c in attr_node.children:
+                if not name_node and c.type in ("Name",):
+                    name_node = c
+                if not value_node and c.type in ("AttValue", "AttributeValue"):
+                    value_node = c
+
         if not name_node or not value_node:
             return None, "", (attr_node.start_byte, attr_node.start_byte)
+
         name = sb[name_node.start_byte:name_node.end_byte].decode()
         raw = sb[value_node.start_byte:value_node.end_byte].decode()
+
         inner_start, inner_end = _strip_quote_range(value_node.start_byte, value_node.end_byte, raw)
         value = sb[inner_start:inner_end].decode()
         return name, value, (inner_start, inner_end)

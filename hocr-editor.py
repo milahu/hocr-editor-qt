@@ -23,6 +23,7 @@ class WordItem(QGraphicsRectItem):
     HANDLE_SIZE = 6
 
     def __init__(self, word, inspector_update_cb):
+        # assert word.bbox is not None, f"{word.id} has no bbox (title='{word.title_value}')"
         super().__init__(QRectF(word.bbox[0], word.bbox[1],
                                word.bbox[2] - word.bbox[0],
                                word.bbox[3] - word.bbox[1]))
@@ -185,7 +186,7 @@ class HocrEditor(QMainWindow):
 
         parser = HocrParser(source)
         self.words = parser.find_words()
-        print("self.words", self.words)
+        # print("self.words", self.words)
 
         for word in self.words:
             item = WordItem(word, inspector_update_cb=self.inspector.update_word)
