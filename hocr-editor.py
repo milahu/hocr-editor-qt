@@ -31,9 +31,9 @@ class WordItem(QGraphicsRectItem):
     HANDLE_SIZE = 8
 
     def __init__(self, word, inspector_update_cb, parser_update_cb):
-        super().__init__(QRectF(word.bbox[0], word.bbox[1],
-                               word.bbox[2] - word.bbox[0],
-                               word.bbox[3] - word.bbox[1]))
+        x0, y0, x1, y1 = word.bbox
+        super().__init__(QRectF(0, 0, x1 - x0, y1 - y0))  # local rect
+        self.setPos(x0, y0)  # scene position
         self.word = word
         self.inspector_update_cb = inspector_update_cb
         self.parser_update_cb = parser_update_cb

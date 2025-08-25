@@ -304,3 +304,8 @@ ok, now there is a scene. but ...
             text_color = palette.color(palette.Text)
             self.text_item.setBrush(QBrush(text_color))
 ```
+
+---
+
+ok, now all the word positions are wrong.
+it seems like all words are placed in the top-left corner of the page
