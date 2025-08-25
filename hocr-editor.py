@@ -18,33 +18,31 @@ xwconf_re = re.compile(r"x_wconf (\d+)")
 
 
 class WordItem(QGraphicsRectItem):
-    def __init__(self, word_id, text, bbox, x_wconf, inspector_update_cb):
-        super().__init__(*QRectF(*bbox))
-        self.word_id = word_id
-        self.word_text = text
-        self.bbox = list(bbox)  # [x0,y0,x1,y1]
-        self.x_wconf = x_wconf
+    HANDLE_SIZE = 6
+
+    def __init__(self, word: Word, inspector_update_cb):
+        super().__init__(QRectF(word.bbox[0], word.bbox[1],
+                               word.bbox[2] - word.bbox[0],
+                               word.bbox[3] - word.bbox[1]))
+        self.word = word   # <—— now wraps a Word dataclass
         self.inspector_update_cb = inspector_update_cb
 
-        # Styling
-        self.setBrush(QBrush(QColor(255, 255, 0, 50)))
-        self.setPen(QPen(QColor(255, 0, 0), 1, Qt.SolidLine))
-        self.setFlags(
-            QGraphicsItem.ItemIsSelectable
-            | QGraphicsItem.ItemIsMovable
-            | QGraphicsItem.ItemSendsGeometryChanges
-        )
+        # Draw rect style
+        self.setPen(QPen(QColor("red"), 1, Qt.DashLine))
+        self.setBrush(QBrush(QColor(255, 0, 0, 40)))
+        self.setFlags(QGraphicsRectItem.ItemIsSelectable |
+                      QGraphicsRectItem.ItemIsMovable)
 
-        # Text
-        self.text_item = QGraphicsSimpleTextItem(text, self)
-        font_size = max(10, (bbox[3] - bbox[1]) * 0.8)
-        font = QFont("Arial", int(font_size))
-        self.text_item.setFont(font)
-        self.text_item.setPos(0, 0)
+        # Show text
+        self.text_item = QGraphicsSimpleTextItem(word.text, self)
+        self.text_item.setBrush(QColor("black"))
+        self._update_text_position()
 
         # Resize handle
-        self.handle_size = 8
-        self.resizing = False
+        self.handle_item = QGraphicsEllipseItem(0, 0, self.HANDLE_SIZE, self.HANDLE_SIZE, self)
+        self.handle_item.setBrush(QBrush(QColor("blue")))
+        self._update_handle_position()
+        self.handle_item.setFlag(QGraphicsEllipseItem.ItemIsMovable)
 
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
@@ -67,10 +65,13 @@ class WordItem(QGraphicsRectItem):
             super().mouseMoveEvent(event)
         self.update_text_pos()
 
+    # --- Overridden events
     def mouseReleaseEvent(self, event: QMouseEvent):
-        self.resizing = False
-        self._update_bbox_from_rect()
         super().mouseReleaseEvent(event)
+        self.update_word_bbox()
+        self._update_text_position()
+        self._update_handle_position()
+        self.inspector_update_cb(self.word)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
@@ -88,14 +89,24 @@ class WordItem(QGraphicsRectItem):
         proxy.deleteLater()
         self.update_text_pos()
 
-    def update_text_pos(self):
-        self.text_item.setPos(0, 0)
+    # --- Helpers
+    def _update_text_position(self):
+        rect = self.rect()
+        self.text_item.setPos(rect.x() + 2, rect.y() + 2)
+        font = self.text_item.font()
+        font.setPointSizeF(max(10, rect.height() * 0.8))
+        self.text_item.setFont(font)
 
-    def _update_bbox_from_rect(self):
-        rect = self.sceneBoundingRect()
-        self.bbox = [int(rect.left()), int(rect.top()), int(rect.right()), int(rect.bottom())]
-        if self.isSelected():
-            self.inspector_update_cb(self)
+    def _update_handle_position(self):
+        rect = self.rect()
+        self.handle_item.setPos(rect.right() - self.HANDLE_SIZE,
+                                rect.bottom() - self.HANDLE_SIZE)
+
+    # --- Sync back bbox
+    def update_word_bbox(self):
+        rect = self.rect()
+        self.word.bbox = (int(rect.left()), int(rect.top()),
+                          int(rect.right()), int(rect.bottom()))
 
     def paint(self, painter, option, widget=None):
         super().paint(painter, option, widget)
@@ -153,7 +164,7 @@ class HocrEditor(QMainWindow):
 
         # FIXME integrate class Word with class WordItem
         for word in self.words:
-            item = WordItem(word_id, text_val, bbox, xwconf, self.inspector.update_word)
+            item = WordItem(word)
             self.scene.addItem(item)
 
 

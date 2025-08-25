@@ -168,3 +168,7 @@ the parse tree from tree-sitter-xml looks like this
 
 yes, add update functions in this parser module.
 but the parser module is broken, find_words returns an empty list of words.
+
+---
+
+ok, now we need to integrate class Word with class WordItem
