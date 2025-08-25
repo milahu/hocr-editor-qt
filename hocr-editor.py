@@ -149,8 +149,12 @@ class HocrEditor(QMainWindow):
 
         parser = HocrParser(source)
         self.words = parser.find_words()
-        # FIXME self.words is empty list
         print("self.words", self.words)
+
+        # FIXME integrate class Word with class WordItem
+        for word in self.words:
+            item = WordItem(word_id, text_val, bbox, xwconf, self.inspector.update_word)
+            self.scene.addItem(item)
 
 
 if __name__ == "__main__":
