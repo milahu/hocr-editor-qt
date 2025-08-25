@@ -184,3 +184,7 @@ ok, now inspector_update_cb is missing
 ---
 
 ok, now there is something wrong with `class HocrParser` because `word.bbox == None`
+
+---
+
+ok, now when i edit a word text and hit enter, i get a segfault

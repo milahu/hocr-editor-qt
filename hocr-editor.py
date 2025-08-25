@@ -22,7 +22,7 @@ xwconf_re = re.compile(r"x_wconf (\d+)")
 class WordItem(QGraphicsRectItem):
     HANDLE_SIZE = 6
 
-    def __init__(self, word, inspector_update_cb):
+    def __init__(self, word, inspector_update_cb, parser_update_cb):
         # assert word.bbox is not None, f"{word.id} has no bbox (title='{word.title_value}')"
         super().__init__(QRectF(word.bbox[0], word.bbox[1],
                                word.bbox[2] - word.bbox[0],
@@ -30,6 +30,7 @@ class WordItem(QGraphicsRectItem):
         self.word = word
         # self.bbox = list(word.bbox)
         self.inspector_update_cb = inspector_update_cb
+        self.parser_update_cb = parser_update_cb
         self.editor = None  # QGraphicsProxyWidget for editing
 
         # Style
@@ -146,6 +147,17 @@ class WordItem(QGraphicsRectItem):
             # self.inspector_update_cb(self.word)
             self.inspector_update_cb(self)
 
+    def eventFilter(self, obj, event):
+        if obj is self.text_item:
+            if event.type() == QEvent.FocusOut:
+                new_text = self.text_item.toPlainText()
+                if new_text != self.word_text:
+                    self.word_text = new_text
+                    # safe: update parser now
+                    self.parser_update_cb(self.word_id, new_text)
+                    self.inspector_update_cb(self)
+        return super().eventFilter(obj, event)
+
 
 class Inspector(QWidget):
     def __init__(self):
@@ -188,8 +200,11 @@ class HocrEditor(QMainWindow):
         self.words = parser.find_words()
         # print("self.words", self.words)
 
+        def parser_update_cb(word_id, new_text):
+            self.parser.update(word_id, text=new_text)
+
         for word in self.words:
-            item = WordItem(word, inspector_update_cb=self.inspector.update_word)
+            item = WordItem(word, self.inspector.update_word, parser_update_cb)
             self.scene.addItem(item)
 
 
