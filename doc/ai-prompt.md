@@ -410,3 +410,44 @@ so it should use the actual current window width
 ---
 
 ok, the main window should start in "maximized" size
+
+---
+
+ok, now implement `on_word_selected`.
+the code view should:
+1. vertical scroll to center the word
+2. select the full word with the text cursor
+
+---
+
+ok, but vertical scroll currently only makes the word visible, but vertical scroll should try to put the selected word in the vertical center
+
+---
+
+no, still not working. when i click the last word in the page view, the source view should scroll to the bottom. currently it only scrolls down, but not far enough
+
+---
+
+no
+
+```py
+    cursor.setPosition(end_pos, cursor.KeepAnchor)
+                                ^^^^^^^^^^^^^^^^^
+AttributeError: 'PySide6.QtGui.QTextCursor' object has no attribute 'KeepAnchor'
+```
+
+---
+
+no, now scroll_value is always 0
+
+---
+
+no, this only works for some words, but fails for most words (where the code view scrolls to the top)
+
+---
+
+no, still not working. some words just produce a wrong scroll position in the code view
+
+---
+
+no, now target_scroll is always 0
