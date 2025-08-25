@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QGraphicsSimpleTextItem, QGraphicsProxyWidget,
     QWidget, QVBoxLayout, QLabel, QLineEdit, QSplitter,
     QGraphicsEllipseItem,
+    QDockWidget,
 )
 from PySide6.QtGui import QBrush, QColor, QPen, QFont, QMouseEvent
 from PySide6.QtCore import QRectF, Qt, QPointF
@@ -26,6 +27,7 @@ class WordItem(QGraphicsRectItem):
                                word.bbox[2] - word.bbox[0],
                                word.bbox[3] - word.bbox[1]))
         self.word = word
+        # self.bbox = list(word.bbox)
         self.inspector_update_cb = inspector_update_cb
         self.editor = None  # QGraphicsProxyWidget for editing
 
@@ -46,6 +48,22 @@ class WordItem(QGraphicsRectItem):
         self._update_handle_position()
         self.handle_item.setFlag(QGraphicsEllipseItem.ItemIsMovable)
 
+        '''
+        self.word_id = word.id
+        self.word_text = word.text
+        self.bbox = list(word.bbox)
+        self.x_wconf = word.x_wconf
+        self.inspector_update_cb = inspector_update_cb
+
+        # add label on top
+        self.text_item = QGraphicsSimpleTextItem(self.word_text, self)
+        self.text_item.setFont(QFont("Arial", 12))
+        self.text_item.setPos(self.bbox[0], self.bbox[1])
+
+        self.setFlag(QGraphicsItem.ItemIsSelectable, True)
+        self.setFlag(QGraphicsItem.ItemIsMovable, True)
+        '''
+
     # --- Helpers
     def _update_text_position(self):
         rect = self.rect()
@@ -65,12 +83,31 @@ class WordItem(QGraphicsRectItem):
                           int(rect.right()), int(rect.bottom()))
 
     # --- Events
+    def mousePressEvent(self, event):
+        # when clicked, update inspector
+        # if self.inspector_update_cb:
+        #     self.inspector_update_cb(self)
+        self.inspector_update_cb(self)
+        super().mousePressEvent(event)
+
     def mouseReleaseEvent(self, event):
         super().mouseReleaseEvent(event)
         self.update_word_bbox()
         self._update_text_position()
         self._update_handle_position()
-        self.inspector_update_cb(self.word)
+        # self.inspector_update_cb(self.word)
+        self.inspector_update_cb(self)
+
+    '''
+    def mouseReleaseEvent(self, event):
+        # after move/resize, refresh inspector with new bbox
+        self.bbox = [int(self.rect().x()), int(self.rect().y()),
+                     int(self.rect().x() + self.rect().width()),
+                     int(self.rect().y() + self.rect().height())]
+        if self.inspector_update_cb:
+            self.inspector_update_cb(self)
+        super().mouseReleaseEvent(event)
+    '''
 
     def mouseDoubleClickEvent(self, event):
         if self.editor is None:
@@ -105,7 +142,8 @@ class WordItem(QGraphicsRectItem):
             self.editor = None
 
             # notify inspector
-            self.inspector_update_cb(self.word)
+            # self.inspector_update_cb(self.word)
+            self.inspector_update_cb(self)
 
 
 class Inspector(QWidget):
@@ -128,18 +166,15 @@ class Inspector(QWidget):
 class HocrEditor(QMainWindow):
     def __init__(self, hocr_file):
         super().__init__()
-        self.setWindowTitle("HOCR Editor (Qt Native)")
-        splitter = QSplitter()
-        self.setCentralWidget(splitter)
-
-        # Scene + View
         self.scene = QGraphicsScene()
         self.view = QGraphicsView(self.scene)
-        splitter.addWidget(self.view)
+        self.setCentralWidget(self.view)
 
-        # Inspector
+        # create Inspector dock
         self.inspector = Inspector()
-        splitter.addWidget(self.inspector)
+        dock = QDockWidget("Inspector", self)
+        dock.setWidget(self.inspector)
+        self.addDockWidget(Qt.RightDockWidgetArea, dock)
 
         self.words = []
         self.load_hocr(hocr_file)
@@ -152,9 +187,8 @@ class HocrEditor(QMainWindow):
         self.words = parser.find_words()
         print("self.words", self.words)
 
-        # FIXME integrate class Word with class WordItem
         for word in self.words:
-            item = WordItem(word)
+            item = WordItem(word, inspector_update_cb=self.inspector.update_word)
             self.scene.addItem(item)
 
 

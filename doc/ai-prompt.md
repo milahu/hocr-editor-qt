@@ -176,3 +176,7 @@ ok, now we need to integrate class Word with class WordItem
 ---
 
 ImportError: cannot import name 'QGraphicsLineEdit' from 'PySide6.QtWidgets'
+
+---
+
+ok, now inspector_update_cb is missing
