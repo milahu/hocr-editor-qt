@@ -158,10 +158,10 @@ class Inspector(QWidget):
             self.labels[field] = lbl
 
     def update_word(self, word_item: WordItem):
-        self.labels["id"].setText(f"id: {word_item.word_id}")
-        self.labels["text"].setText(f"text: {word_item.word_text}")
-        self.labels["bbox"].setText(f"bbox: {' '.join(map(str, word_item.bbox))}")
-        self.labels["x_wconf"].setText(f"x_wconf: {word_item.x_wconf}")
+        self.labels["id"].setText(f"id: {word_item.word.id}")
+        self.labels["text"].setText(f"text: {word_item.word.text}")
+        self.labels["bbox"].setText(f"bbox: {' '.join(map(str, word_item.word.bbox))}")
+        self.labels["x_wconf"].setText(f"x_wconf: {word_item.word.x_wconf}")
 
 
 class HocrEditor(QMainWindow):
