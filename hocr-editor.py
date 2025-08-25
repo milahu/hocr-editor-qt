@@ -102,6 +102,8 @@ class WordItem(QGraphicsRectItem):
         self.update_word_bbox()
         self._update_text_position()
         self._update_handle_position()
+        # update parser with new bbox
+        self.parser_update_cb(self.word.id, bbox=self.word.bbox)
         # self.inspector_update_cb(self.word)
         self.inspector_update_cb(self)
 
@@ -234,8 +236,8 @@ class HocrEditor(QMainWindow):
         self.words = self.parser.find_words()
         # print("self.words", self.words)
 
-        def parser_update_cb(word_id, new_text):
-            self.parser.update(word_id, text=new_text)
+        def parser_update_cb(word_id, text=None, bbox=None):
+            self.parser.update(word_id, text=text, bbox=bbox)
 
         for word in self.words:
             item = WordItem(word, self.inspector.update_word, parser_update_cb)
