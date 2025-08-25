@@ -192,3 +192,9 @@ ok, now when i edit a word text and hit enter, i get a segfault
 ---
 
 nope, i still get a segfault when i edit word text
+
+---
+
+nope, i still get a segfault when i edit word text
+
+here is my full hocr-editor.py

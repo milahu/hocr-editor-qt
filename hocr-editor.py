@@ -145,11 +145,21 @@ class WordItem(QGraphicsRectItem):
             line_edit = self.editor.widget()
             new_text = line_edit.text()
             if new_text != self.word.text:
-                # Delay update until after editor fully closes
-                QTimer.singleShot(0, lambda: self.commit_text(new_text))
-            # cleanup editor
-            self.scene().removeItem(self.editor)
-            self.editor = None
+                # Delay update until editor is fully committed
+                def do_update():
+                    self.commit_text(new_text)
+                    # safely remove proxy
+                    self.scene().removeItem(self.editor)
+                    self.editor.deleteLater()
+                    self.editor = None
+                QTimer.singleShot(0, do_update)
+            else:
+                # just remove editor
+                def cleanup():
+                    self.scene().removeItem(self.editor)
+                    self.editor.deleteLater()
+                    self.editor = None
+                QTimer.singleShot(0, cleanup)
 
     def eventFilter(self, obj, event):
         if obj is self.text_item:
