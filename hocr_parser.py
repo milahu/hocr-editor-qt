@@ -232,6 +232,7 @@ class HocrParser:
             text_range = (end_tag.start_byte, end_tag.start_byte)
 
         bbox, xw = _parse_title(title_val)
+        print("235 bbox", bbox)
         return Word(
             id=id_val,
             text=text,
@@ -310,6 +311,9 @@ class HocrParser:
                     break
 
         bbox, xw = _parse_title(title_val)
+        print("314 bbox", bbox)
+        # FIXME bbox is None
+        assert not (bbox is None)
         return Word(
             id=id_val,
             text=text,
