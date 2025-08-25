@@ -368,12 +368,13 @@ class HocrEditor(QMainWindow):
 
         self.showMaximized() # use full screen size
 
-        # Initial width ratio: 60% : 40%
+        # Initial width ratio
+        page_view_initial_width = 0.5
         current_width = self.width()
-        splitter.setSizes([int(current_width * 0.6), int(current_width * 0.4)])
+        splitter.setSizes([int(current_width * page_view_initial_width), int(current_width * (1 - page_view_initial_width))])
         # proportional resizing behavior after initial sizing
-        splitter.setStretchFactor(0, 3)  # 60%
-        splitter.setStretchFactor(1, 2)  # 40%
+        splitter.setStretchFactor(0, page_view_initial_width)
+        splitter.setStretchFactor(1, (1 - page_view_initial_width))
 
         # TODO better
         for delay in [1, 10, 20, 50, 100, 200, 500]:
