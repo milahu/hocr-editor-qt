@@ -381,3 +381,28 @@ when i edit a word text and hit enter, i get a segfault
 
 ok, now replace the "Inspector dock" sidebar with an hocr source code editor.
 changes should be propagated in both ways (between the "page view" on the left and the "hocr source view" on the right).
+
+---
+
+ok, increase the width of the "hocr source" editor.
+the initial widths should be:
+60% for the page view
+40% for the hocr source view
+
+---
+
+no, the page view still has too much width.
+the current ratio is about 7 : 1, it should be 60 : 40
+
+---
+
+> total_width = 1200
+
+i dont set an explicit width in
+
+```
+class HocrEditor(QMainWindow):
+    def __init__(self, hocr_file):
+```
+
+so it should use the actual current window width

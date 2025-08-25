@@ -299,7 +299,6 @@ class HocrEditor(QMainWindow):
         self.hocr_file = hocr_file  # remember original filename
         self.scene = QGraphicsScene()
         self.view = PageView(self.scene)
-        self.setCentralWidget(self.view)
 
         # load words into scene
         # set self.parser
@@ -308,9 +307,23 @@ class HocrEditor(QMainWindow):
 
         # HOCR source editor dock
         self.source_editor = HocrSourceEditor(self.parser, update_page_cb=self.refresh_page_view)
-        dock = QDockWidget("HOCR Source", self)
-        dock.setWidget(self.source_editor)
-        self.addDockWidget(Qt.RightDockWidgetArea, dock)
+
+        # Splitter to control widths
+        splitter = QSplitter()
+        splitter.addWidget(self.view)
+        splitter.addWidget(self.source_editor)
+        # Initial width ratio: 60% : 40%
+        current_width = self.width()
+        splitter.setSizes([int(current_width * 0.6), int(current_width * 0.4)])
+        # proportional resizing behavior after initial sizing
+        splitter.setStretchFactor(0, 3)  # 60%
+        splitter.setStretchFactor(1, 2)  # 40%
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(splitter)
+        self.setCentralWidget(container)
 
         # Menu bar
         self._create_menubar()
