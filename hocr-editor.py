@@ -425,6 +425,7 @@ class HocrEditor(QMainWindow):
                     item.set_text_color(color)
 
     def load_hocr(self, hocr_file):
+        self.hocr_file = hocr_file
         with open(hocr_file, "r", encoding="utf-8") as f:
             source = f.read()
 
@@ -443,6 +444,10 @@ class HocrEditor(QMainWindow):
         for page in self.parser.find_pages():
             # print("page", page)
             img_path = _extract_image_from_title(page.title_value)
+            img_path = os.path.join(
+                os.path.dirname(self.hocr_file),
+                img_path
+            )
             if img_path and os.path.exists(img_path):
                 pixmap = QPixmap(img_path)
                 if _is_dark_mode(self.view):
