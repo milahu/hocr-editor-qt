@@ -202,3 +202,7 @@ here is my full hocr-editor.py
 ---
 
 ok, now i need a way to save the new hocr file. add a menubar with "file > save"
+
+---
+
+ok, now  when i edit a hocr file (change text or bbox) and save the file, there is no change in the file contents

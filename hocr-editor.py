@@ -139,6 +139,8 @@ class WordItem(QGraphicsRectItem):
         self.word.text = new_text
         self.text_item.setText(new_text)
         self._update_text_position()
+        # update parser
+        self.parser_update_cb(self.word.id, new_text)
         # refresh inspector
         self.inspector_update_cb(self)
 
