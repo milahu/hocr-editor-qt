@@ -26,6 +26,7 @@ from PySide6.QtGui import (
     QKeySequence,
     QTextCursor,
     QWheelEvent,
+    QIcon,
 )
 from PySide6.QtCore import QRectF, Qt, QPointF
 from PySide6.QtCore import (
@@ -338,6 +339,9 @@ class HocrEditor(QMainWindow):
         self.hocr_file = hocr_file  # remember original filename
         self.scene = QGraphicsScene()
         self.view = PageView(self.scene)
+
+        self.setWindowTitle("HOCR Editor")
+        self.setWindowIcon(QIcon(os.path.dirname(__file__) + "/Eo_circle_blue_letter-h.2.png"))
 
         # load words into scene
         # set self.parser
