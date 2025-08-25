@@ -451,3 +451,12 @@ no, still not working. some words just produce a wrong scroll position in the co
 ---
 
 no, now target_scroll is always 0
+
+---
+
+ah!!
+the problem was that on_word_selected was called twice
+from mousePressEvent and from mouseReleaseEvent.
+i removed the call from mousePressEvent and now it works
+
+edit: nope, still not working in some cases...

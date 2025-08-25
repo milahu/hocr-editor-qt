@@ -154,7 +154,7 @@ class WordItem(QGraphicsRectItem):
         else:
             self._resizing = False
             self._drag_offset = event.pos()
-        self.inspector_update_cb(self)
+        # self.inspector_update_cb(self)
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
