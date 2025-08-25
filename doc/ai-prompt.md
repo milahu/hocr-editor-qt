@@ -206,3 +206,33 @@ ok, now i need a way to save the new hocr file. add a menubar with "file > save"
 ---
 
 ok, now  when i edit a hocr file (change text or bbox) and save the file, there is no change in the file contents
+
+---
+
+ok, now bbox values are not updated.
+it seems like `parser_update_cb` always receives the original bbox value
+from when the hocr file was first parsed
+
+---
+
+no, you have not changed anything.
+
+```py
+    def update_word_bbox(self):
+        rect = self.rect()
+        old_bbox = self.word.bbox
+        self.word.bbox = (int(rect.left()), int(rect.top()),
+                          int(rect.right()), int(rect.bottom()))
+        if old_bbox == self.word.bbox:
+            print(f"update_word_bbox: no change")
+        else:
+            print(f"update_word_bbox: bbox {old_bbox} -> {self.word.bbox}")
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        self.update_word_bbox()
+        # ...
+```
+
+`update_word_bbox` always gets the same `self.rect()`.
+dragging the `QGraphicsRectItem` seems to have no effect on `self.rect()`

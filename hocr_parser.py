@@ -161,6 +161,11 @@ class HocrParser:
         if bbox is not None or x_wconf is not None:
             current_title = self.source[node.title_value_range[0]:node.title_value_range[1]]
             new_title = _format_title(current_title, bbox=bbox, x_wconf=x_wconf)
+            if current_title == new_title:
+                print(f"update title: no change")
+            else:
+                print(f"update title: {current_title!r} -> {new_title!r}")
+            # FIXME preserve the old x_wconf value (and all other semicolon-separated values in title)
             if new_title != current_title:
                 self._replace_range(node.title_value_range, new_title)
                 changed = True

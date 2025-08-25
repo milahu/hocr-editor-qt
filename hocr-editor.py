@@ -86,8 +86,19 @@ class WordItem(QGraphicsRectItem):
 
     def update_word_bbox(self):
         rect = self.rect()
-        self.word.bbox = (int(rect.left()), int(rect.top()),
-                          int(rect.right()), int(rect.bottom()))
+        pos = self.pos()  # top-left corner in scene coordinates
+        new_bbox = (
+            int(pos.x() + rect.left()),
+            int(pos.y() + rect.top()),
+            int(pos.x() + rect.right()),
+            int(pos.y() + rect.bottom())
+        )
+        old_bbox = self.word.bbox
+        self.word.bbox = new_bbox
+        if old_bbox == new_bbox:
+            print(f"update_word_bbox: no change")
+        else:
+            print(f"update_word_bbox: bbox {old_bbox} -> {new_bbox}")
 
     # --- Events
     def mousePressEvent(self, event):
