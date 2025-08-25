@@ -371,3 +371,8 @@ ok, now when i doubleclick a word, it should select all text in the QLineEdit wi
 > also focus the QLineEdit automatically
 
 yes
+
+---
+
+ok, now i get the same problem as before:
+when i edit a word text and hit enter, i get a segfault

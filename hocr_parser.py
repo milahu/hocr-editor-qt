@@ -209,6 +209,7 @@ class HocrParser:
         """Apply one or more changes to a word by id using minimal diffs.
         Returns True if the word was found and something changed.
         """
+        # print(f"parser.update: text {text!r} bbox {bbox!r}")
         idx = self._index_words()
         node = idx.get(word_id)
         if not node:

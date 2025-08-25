@@ -170,17 +170,29 @@ class WordItem(QGraphicsRectItem):
             line_edit.setFocus(Qt.FocusReason.MouseFocusReason)
             line_edit.editingFinished.connect(self.finish_editing)
 
+    def commit_text(self, new_text):
+        # print(f"commit_text: word.text {self.word.text!r} -> {new_text!r}")
+        self.word.text = new_text
+        self.text_item.setText(new_text)
+        self.parser_update_cb(self.word.id, new_text, bbox=self.word.bbox)
+        self.inspector_update_cb(self)
+
     def finish_editing(self):
         if self.editor:
             line_edit = self.editor.widget()
             new_text = line_edit.text()
+            # Disconnect signal immediately
+            try:
+                line_edit.editingFinished.disconnect()
+            except Exception:
+                pass
             if new_text != self.word.text:
-                self.word.text = new_text
-                self.text_item.setText(new_text)
-                self.parser_update_cb(self.word.id, new_text, bbox=self.word.bbox)
-                self.inspector_update_cb(self)
-            self.scene().removeItem(self.editor)
+                # Delay update until after editor fully closes
+                QTimer.singleShot(0, lambda: self.commit_text(new_text))
+            # Remove proxy safely after current events
+            proxy = self.editor
             self.editor = None
+            QTimer.singleShot(0, lambda: self.scene().removeItem(proxy))
 
     # ---------------- Helpers ----------------
     def _is_on_handle(self, pos: QPointF) -> bool:
