@@ -236,3 +236,9 @@ no, you have not changed anything.
 
 `update_word_bbox` always gets the same `self.rect()`.
 dragging the `QGraphicsRectItem` seems to have no effect on `self.rect()`
+
+---
+
+> Do you want me to rewrite the full WordItem mouse events and bbox update so both dragging and resizing correctly update the Word.bbox and parser?
+
+yes
