@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QStyleOptionGraphicsItem,
     QStyle,
     QPlainTextEdit,
+    QColorDialog,
 )
 from PySide6.QtGui import QBrush, QColor, QPen, QFont, QMouseEvent
 from PySide6.QtGui import (
@@ -27,6 +28,7 @@ from PySide6.QtGui import (
     QTextCursor,
     QWheelEvent,
     QIcon,
+    QAction,
 )
 from PySide6.QtCore import QRectF, Qt, QPointF
 from PySide6.QtCore import (
@@ -112,6 +114,11 @@ class WordItem(QGraphicsRectItem):
             # no, this is ugly
             # Optional: fill color with some transparency
             # self.setBrush(QBrush(fg_color, Qt.Dense4Pattern))  # or light alpha
+
+    def set_text_color(self, color):
+        """Apply color to text and bbox outline."""
+        self.text_item.setBrush(color)
+        self.setPen(QPen(color, 1))
 
     # Override QGraphicsItem hook when added to scene
     def itemChange(self, change, value):
@@ -343,6 +350,9 @@ class HocrEditor(QMainWindow):
         self.setWindowTitle("HOCR Editor")
         self.setWindowIcon(QIcon(os.path.dirname(__file__) + "/Eo_circle_blue_letter-h.2.png"))
 
+        # track chosen overlay color
+        self.overlay_color = None
+
         # load words into scene
         # set self.parser
         self.words = []
@@ -395,6 +405,22 @@ class HocrEditor(QMainWindow):
         save_as_action = file_menu.addAction("Save As...")
         save_as_action.setShortcut("Ctrl+Shift+S")
         save_as_action.triggered.connect(self.save_hocr_as)
+
+        # View menu
+        view_menu = menubar.addMenu("&View")
+
+        text_color_action = QAction("Set Overlay Color", self)
+        text_color_action.triggered.connect(self.pick_text_color)
+        view_menu.addAction(text_color_action)
+
+    def pick_text_color(self):
+        color = QColorDialog.getColor(self.overlay_color or Qt.green, self, "Set Overlay Color")
+        if color.isValid():
+            self.overlay_color = color
+            # apply to all WordItems
+            for item in self.scene.items():
+                if isinstance(item, WordItem):
+                    item.set_text_color(color)
 
     def load_hocr(self, hocr_file):
         with open(hocr_file, "r", encoding="utf-8") as f:

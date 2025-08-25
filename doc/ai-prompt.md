@@ -473,3 +473,14 @@ ctrl + scroll = zoom
 ctrl + + = zoom in
 ctrl + - = zoom out
 ctrl + 0 = reset zoom
+
+---
+
+ok, now the text in the page view is hard to read,
+because the overlay text nodes have the same text color as the text in the page image.
+let me set the text color of the text nodes with a color picker popup widget,
+so for example, i can set green text.
+
+---
+
+ok, now also apply this to the bbox line color
