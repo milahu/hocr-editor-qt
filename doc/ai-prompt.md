@@ -460,3 +460,16 @@ from mousePressEvent and from mouseReleaseEvent.
 i removed the call from mousePressEvent and now it works
 
 edit: nope, still not working in some cases...
+
+---
+
+edit: nope, still not working in some cases...
+but nevermind, this is a low-priority bug.
+
+lets focus on bigger problems:
+now the hocr code editor is hard to read.
+i also want a zoom function for the code editor's font size:
+ctrl + scroll = zoom
+ctrl + + = zoom in
+ctrl + - = zoom out
+ctrl + 0 = reset zoom
