@@ -6,7 +6,8 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QGraphicsView, QGraphicsScene,
     QGraphicsRectItem, QGraphicsTextItem, QGraphicsItem,
     QGraphicsSimpleTextItem, QGraphicsProxyWidget,
-    QWidget, QVBoxLayout, QLabel, QLineEdit, QSplitter
+    QWidget, QVBoxLayout, QLabel, QLineEdit, QSplitter,
+    QGraphicsEllipseItem,
 )
 from PySide6.QtGui import QBrush, QColor, QPen, QFont, QMouseEvent
 from PySide6.QtCore import QRectF, Qt, QPointF
@@ -20,14 +21,15 @@ xwconf_re = re.compile(r"x_wconf (\d+)")
 class WordItem(QGraphicsRectItem):
     HANDLE_SIZE = 6
 
-    def __init__(self, word: Word, inspector_update_cb):
+    def __init__(self, word, inspector_update_cb):
         super().__init__(QRectF(word.bbox[0], word.bbox[1],
                                word.bbox[2] - word.bbox[0],
                                word.bbox[3] - word.bbox[1]))
-        self.word = word   # <—— now wraps a Word dataclass
+        self.word = word
         self.inspector_update_cb = inspector_update_cb
+        self.editor = None  # QGraphicsProxyWidget for editing
 
-        # Draw rect style
+        # Style
         self.setPen(QPen(QColor("red"), 1, Qt.DashLine))
         self.setBrush(QBrush(QColor(255, 0, 0, 40)))
         self.setFlags(QGraphicsRectItem.ItemIsSelectable |
@@ -44,57 +46,12 @@ class WordItem(QGraphicsRectItem):
         self._update_handle_position()
         self.handle_item.setFlag(QGraphicsEllipseItem.ItemIsMovable)
 
-    def mousePressEvent(self, event: QMouseEvent):
-        if event.button() == Qt.LeftButton:
-            rect = self.rect()
-            handle_rect = QRectF(rect.right() - self.handle_size,
-                                 rect.bottom() - self.handle_size,
-                                 self.handle_size, self.handle_size)
-            if handle_rect.contains(event.pos()):
-                self.resizing = True
-            else:
-                self.resizing = False
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event: QMouseEvent):
-        if self.resizing:
-            new_rect = QRectF(self.rect().topLeft(), event.pos())
-            self.setRect(new_rect.normalized())
-            self._update_bbox_from_rect()
-        else:
-            super().mouseMoveEvent(event)
-        self.update_text_pos()
-
-    # --- Overridden events
-    def mouseReleaseEvent(self, event: QMouseEvent):
-        super().mouseReleaseEvent(event)
-        self.update_word_bbox()
-        self._update_text_position()
-        self._update_handle_position()
-        self.inspector_update_cb(self.word)
-
-    def mouseDoubleClickEvent(self, event: QMouseEvent):
-        if event.button() == Qt.LeftButton:
-            # Inline editor
-            editor = QLineEdit(self.word_text)
-            proxy = QGraphicsProxyWidget(self)
-            proxy.setWidget(editor)
-            proxy.setPos(0, 0)
-            editor.setFocus()
-            editor.editingFinished.connect(lambda: self._commit_editor(editor, proxy))
-
-    def _commit_editor(self, editor, proxy):
-        self.word_text = editor.text()
-        self.text_item.setText(self.word_text)
-        proxy.deleteLater()
-        self.update_text_pos()
-
     # --- Helpers
     def _update_text_position(self):
         rect = self.rect()
         self.text_item.setPos(rect.x() + 2, rect.y() + 2)
         font = self.text_item.font()
-        font.setPointSizeF(max(10, rect.height() * 0.8))
+        font.setPointSizeF(max(10, rect.height() * 0.6))
         self.text_item.setFont(font)
 
     def _update_handle_position(self):
@@ -102,20 +59,53 @@ class WordItem(QGraphicsRectItem):
         self.handle_item.setPos(rect.right() - self.HANDLE_SIZE,
                                 rect.bottom() - self.HANDLE_SIZE)
 
-    # --- Sync back bbox
     def update_word_bbox(self):
         rect = self.rect()
         self.word.bbox = (int(rect.left()), int(rect.top()),
                           int(rect.right()), int(rect.bottom()))
 
-    def paint(self, painter, option, widget=None):
-        super().paint(painter, option, widget)
-        # Draw resize handle
-        rect = self.rect()
-        handle_rect = QRectF(rect.right() - self.handle_size,
-                             rect.bottom() - self.handle_size,
-                             self.handle_size, self.handle_size)
-        painter.fillRect(handle_rect, QColor(0, 0, 255))
+    # --- Events
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        self.update_word_bbox()
+        self._update_text_position()
+        self._update_handle_position()
+        self.inspector_update_cb(self.word)
+
+    def mouseDoubleClickEvent(self, event):
+        if self.editor is None:
+            # Create QLineEdit for editing text
+            line_edit = QLineEdit(self.word.text)
+            line_edit.setFrame(False)
+            line_edit.setFixedWidth(int(self.rect().width()))
+
+            # Wrap in proxy widget so it can be placed in the scene
+            self.editor = QGraphicsProxyWidget(self)
+            self.editor.setWidget(line_edit)
+            self.editor.setPos(self.rect().x() + 2, self.rect().y() + 2)
+
+            line_edit.editingFinished.connect(self.finish_editing)
+
+        else:
+            # already editing → ignore
+            pass
+
+    def finish_editing(self):
+        if self.editor:
+            line_edit = self.editor.widget()
+            new_text = line_edit.text()
+
+            # update Word + graphics
+            self.word.text = new_text
+            self.text_item.setText(new_text)
+            self._update_text_position()
+
+            # cleanup editor
+            self.scene().removeItem(self.editor)
+            self.editor = None
+
+            # notify inspector
+            self.inspector_update_cb(self.word)
 
 
 class Inspector(QWidget):

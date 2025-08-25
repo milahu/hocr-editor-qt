@@ -172,3 +172,7 @@ but the parser module is broken, find_words returns an empty list of words.
 ---
 
 ok, now we need to integrate class Word with class WordItem
+
+---
+
+ImportError: cannot import name 'QGraphicsLineEdit' from 'PySide6.QtWidgets'
