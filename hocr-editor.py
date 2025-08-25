@@ -114,18 +114,6 @@ class WordItem(QGraphicsRectItem):
         self.inspector_update_cb(self)
         super().mousePressEvent(event)
 
-    def mouseMoveEvent(self, event):
-        if self._resizing:
-            new_width = max(10, event.pos().x())
-            new_height = max(10, event.pos().y())
-            self.setRect(0, 0, new_width, new_height)
-            self._update_text_position()
-            self._update_handle_position()
-            self.update_word_bbox()
-        else:
-            super().mouseMoveEvent(event)
-            self.update_word_bbox()
-
     def mouseReleaseEvent(self, event):
         super().mouseReleaseEvent(event)
         self._resizing = False

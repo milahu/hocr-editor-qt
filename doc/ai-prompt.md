@@ -309,3 +309,8 @@ ok, now there is a scene. but ...
 
 ok, now all the word positions are wrong.
 it seems like all words are placed in the top-left corner of the page
+
+---
+
+ok, now update_word_bbox is fired too often (on every pixel i move)
+(update_word_bbox should only be fired after i have finished moving a word)
