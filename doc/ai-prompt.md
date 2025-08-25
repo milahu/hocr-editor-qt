@@ -484,3 +484,9 @@ so for example, i can set green text.
 ---
 
 ok, now also apply this to the bbox line color
+
+---
+
+ok, now let me pass that overlay color as a command-line argument, like
+
+hocr-editor.py --overlay-color green somefile.hocr

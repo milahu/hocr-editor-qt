@@ -3,6 +3,7 @@
 import os
 import sys
 import re
+import argparse
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QGraphicsView, QGraphicsScene,
     QGraphicsRectItem, QGraphicsTextItem, QGraphicsItem,
@@ -29,6 +30,7 @@ from PySide6.QtGui import (
     QWheelEvent,
     QIcon,
     QAction,
+    QColor,
 )
 from PySide6.QtCore import QRectF, Qt, QPointF
 from PySide6.QtCore import (
@@ -512,12 +514,36 @@ class HocrEditor(QMainWindow):
             self.save_hocr()
 
 
-if __name__ == "__main__":
+def main():
+    parser = argparse.ArgumentParser(description="HOCR Editor")
+    parser.add_argument("hocr_file", help="Path to HOCR file")
+    parser.add_argument(
+        "--overlay-color",
+        default=None,
+        help="Overlay color (color name or #RRGGBB)",
+    )
+    args = parser.parse_args()
+
     app = QApplication(sys.argv)
-    if len(sys.argv) < 2:
-        print("Usage: python hocr_editor_qt_native.py file.hocr.html")
-        sys.exit(1)
-    editor = HocrEditor(sys.argv[1])
-    editor.resize(1200, 800)
-    editor.show()
+
+    overlay_color = None
+    if args.overlay_color:
+        overlay_color = QColor(args.overlay_color)
+        if not overlay_color.isValid():
+            print(f"Warning: invalid color {args.overlay_color}, using theme color")
+            overlay_color = None
+
+    editor = HocrEditor(args.hocr_file)
+    if overlay_color:
+        editor.overlay_text_color = overlay_color
+        # apply immediately to all items
+        for item in editor.scene.items():
+            if hasattr(item, "set_text_color"):
+                item.set_text_color(overlay_color)
+
+    # editor.show()
     sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
