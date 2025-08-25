@@ -84,21 +84,33 @@ class WordItem(QGraphicsRectItem):
         self._resizing = False
         self._drag_offset = QPointF(0, 0)
 
-    def set_theme_text_color(self):
+    def set_theme_colors(self):
         """Call this after item is in a scene."""
-        # print("set_theme_text_color scene", self.scene())
         if self.scene() and self.scene().views():
-            # print("setting text color")
-            palette = self.scene().views()[0].palette()
-            text_color = palette.color(palette.ColorRole.Text)
-            self.text_item.setBrush(QBrush(text_color))
+            view = self.scene().views()[0]
+            palette = view.palette()
+            # no: 'PySide6.QtGui.QPalette' object has no attribute 'Text'
+            # fg_color = palette.color(palette.Text) # text / line color
+            # bg_color = palette.color(palette.Base) # background color (optional)
+            fg_color = palette.color(palette.ColorRole.Text) # text / line color
+            bg_color = palette.color(palette.ColorRole.Base) # background color (optional)
+            # Text color
+            self.text_item.setBrush(QBrush(fg_color))
+            # Rectangle outline
+            # pen = QPen(fg_color, 1) # solid line
+            # pen = QPen(fg_color, 1, Qt.DashLine) # dashed line
+            pen = QPen(fg_color, 1, Qt.DotLine) # dotted line
+            self.setPen(pen)
+            # no, this is ugly
+            # Optional: fill color with some transparency
+            # self.setBrush(QBrush(fg_color, Qt.Dense4Pattern))  # or light alpha
 
     # Override QGraphicsItem hook when added to scene
     def itemChange(self, change, value):
         # print("itemChange", change, value)
         # if change == QGraphicsItem.ItemSceneChange:
         if change == QGraphicsItem.ItemSceneHasChanged:
-            self.set_theme_text_color()
+            self.set_theme_colors()
         return super().itemChange(change, value)
 
     # ---------------- Helpers ----------------

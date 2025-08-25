@@ -341,3 +341,8 @@ AttributeError: 'HocrParser' object has no attribute 'find_elements'
 > This will correctly extract `<div class='ocr_page'>` elements
 
 no, `parser.find_pages()` always returns an empty list
+
+---
+
+ok, now in darkmode, the bbox rectangles are not visible (black lines on black ground?)
+like with text color, it should use the theme foreground color as rectangle line color
