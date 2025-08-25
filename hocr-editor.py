@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QStyleOptionGraphicsItem,
     QStyle,
+    QPlainTextEdit,
 )
 from PySide6.QtGui import QBrush, QColor, QPen, QFont, QMouseEvent
 from PySide6.QtGui import (
@@ -116,6 +117,10 @@ class WordItem(QGraphicsRectItem):
         if change == QGraphicsItem.ItemSceneHasChanged:
             self.set_theme_colors()
         return super().itemChange(change, value)
+
+    def parser_update_cb(word_id, new_text):
+        self.parser.update(word_id, text=new_text)
+        self.source_editor.update_from_page()
 
     # ---------------- Helpers ----------------
     def _update_text_position(self):
@@ -258,6 +263,36 @@ class PageView(QGraphicsView):
         self.scale(1/1.2, 1/1.2)
 
 
+class HocrSourceEditor(QPlainTextEdit):
+    """Editable HOCR source view with sync callback"""
+    def __init__(self, parser: HocrParser, update_page_cb):
+        super().__init__()
+        self.parser = parser
+        self.update_page_cb = update_page_cb  # callback to refresh page view
+        self.setPlainText(parser.source)
+        self.textChanged.connect(self.on_text_changed)
+        self._updating = False  # avoid recursive updates
+
+    def on_text_changed(self):
+        if self._updating:
+            return
+        self._updating = True
+        # Update parser source
+        new_source = self.toPlainText()
+        self.parser.set_source(new_source)
+        # Notify page view to refresh WordItems positions/text
+        self.update_page_cb()
+        self._updating = False
+
+    def update_from_page(self):
+        """Call this when page view edits a word; refresh source editor"""
+        if self._updating:
+            return
+        self._updating = True
+        self.setPlainText(self.parser.source)
+        self._updating = False
+
+
 class HocrEditor(QMainWindow):
     def __init__(self, hocr_file):
         super().__init__()
@@ -266,17 +301,19 @@ class HocrEditor(QMainWindow):
         self.view = PageView(self.scene)
         self.setCentralWidget(self.view)
 
-        # create Inspector dock
-        self.inspector = Inspector()
-        dock = QDockWidget("Inspector", self)
-        dock.setWidget(self.inspector)
+        # load words into scene
+        # set self.parser
+        self.words = []
+        self.load_hocr(hocr_file)
+
+        # HOCR source editor dock
+        self.source_editor = HocrSourceEditor(self.parser, update_page_cb=self.refresh_page_view)
+        dock = QDockWidget("HOCR Source", self)
+        dock.setWidget(self.source_editor)
         self.addDockWidget(Qt.RightDockWidgetArea, dock)
 
         # Menu bar
         self._create_menubar()
-
-        self.words = []
-        self.load_hocr(hocr_file)
 
         # --- zoom shortcuts ---
         QShortcut(QKeySequence("Ctrl++"), self, self.view.zoom_in)
@@ -318,12 +355,36 @@ class HocrEditor(QMainWindow):
             # FIXME support hocr files with multiple pages
             break # stop after first page
 
-        # --- add words ---
-        for word in self.words:
-            item = WordItem(word, self.inspector.update_word, parser_update_cb)
-            self.scene.addItem(item)
+        self.load_words()
 
         QTimer.singleShot(0, self.view.fit_width)  # fit width after layout
+
+    def load_words(self):
+        """Populate the scene with WordItems from parser"""
+        for word in self.parser.find_words():
+            item = WordItem(
+                word,
+                inspector_update_cb=self.on_word_selected,
+                parser_update_cb=self.on_word_changed,
+            )
+            self.scene.addItem(item)
+
+    def refresh_page_view(self):
+        """Clear scene and reload words from parser"""
+        self.scene.clear()
+        self.load_words()
+
+
+    def on_word_selected(self, word_item: WordItem):
+        """Called when a WordItem is selected in page view"""
+        # optional: highlight corresponding code in source editor
+        pass
+
+    def on_word_changed(self, word_id: str, new_text: str = None, bbox=None):
+        """Called when WordItem text changes"""
+        # print("on_word_changed", word_id, new_text, bbox)
+        self.parser.update(word_id, text=new_text, bbox=bbox)
+        self.source_editor.update_from_page()
 
     def save_hocr(self):
         """Save to original file."""
