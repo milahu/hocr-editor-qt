@@ -213,12 +213,23 @@ class PageView(QGraphicsView):
 
     def wheelEvent(self, event):
         """Zoom with Ctrl+wheel"""
-        if event.modifiers() & Qt.ControlModifier:
+        modifiers = event.modifiers()
+        if modifiers & Qt.ControlModifier:
+            # --- Zoom ---
             delta = event.angleDelta().y()
             if delta > 0:
                 self.zoom_in()
             else:
                 self.zoom_out()
+            event.accept()
+        elif modifiers & Qt.ShiftModifier:
+            # --- Horizontal scroll ---
+            delta = event.angleDelta().y()  # vertical wheel normally
+            if delta != 0:
+                step = delta
+                self.horizontalScrollBar().setValue(
+                    self.horizontalScrollBar().value() - step
+                )
             event.accept()
         else:
             super().wheelEvent(event)
