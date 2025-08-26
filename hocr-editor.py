@@ -62,7 +62,7 @@ def _invert_pixmap(pixmap: QPixmap) -> QPixmap:
 
 
 class WordItem(ResizableRectItem):
-    def __init__(self, word, inspector_update_cb, parser_update_cb):
+    def __init__(self, word, word_selected_cb, word_changed_cb):
         x0, y0, x1, y1 = word.bbox
         w = x1 - x0
         h = y1 - y0
@@ -74,8 +74,8 @@ class WordItem(ResizableRectItem):
         )
         self.setPos(x0, y0)  # scene position
         self.word = word
-        self.inspector_update_cb = inspector_update_cb
-        self.parser_update_cb = parser_update_cb
+        self.word_selected_cb = word_selected_cb
+        self.word_changed_cb = word_changed_cb
         self.editor = None
 
         # Text
@@ -125,7 +125,7 @@ class WordItem(ResizableRectItem):
             self.set_theme_colors()
         return super().itemChange(change, value)
 
-    def parser_update_cb(word_id, new_text):
+    def word_changed_cb(word_id, new_text):
         self.parser.update(word_id, text=new_text)
         self.source_editor.update_from_page()
 
@@ -149,7 +149,7 @@ class WordItem(ResizableRectItem):
         if old_bbox != new_bbox:
             print(f"update_word_bbox: {old_bbox} -> {new_bbox}")
             self.word.bbox = new_bbox
-            self.parser_update_cb(self.word.id, self.word.text, bbox=new_bbox)
+            self.word_changed_cb(self.word.id, self.word.text, bbox=new_bbox)
         else:
             print(f"update_word_bbox: no change")
 
@@ -171,8 +171,8 @@ class WordItem(ResizableRectItem):
         # print(f"commit_text: word.text {self.word.text!r} -> {new_text!r}")
         self.word.text = new_text
         self.text_item.setText(new_text)
-        self.parser_update_cb(self.word.id, new_text, bbox=self.word.bbox)
-        self.inspector_update_cb(self)
+        self.word_changed_cb(self.word.id, new_text, bbox=self.word.bbox)
+        self.word_selected_cb(self)
 
     def finish_editing(self):
         if self.editor:
@@ -416,8 +416,8 @@ class HocrEditor(QMainWindow):
         for word in self.parser.find_words():
             item = WordItem(
                 word,
-                inspector_update_cb=self.on_word_selected,
-                parser_update_cb=self.on_word_changed,
+                word_selected_cb=self.on_word_selected,
+                word_changed_cb=self.on_word_changed,
             )
             self.scene.addItem(item)
 
