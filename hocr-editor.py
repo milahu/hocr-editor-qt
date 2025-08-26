@@ -263,7 +263,11 @@ class HocrEditor(QMainWindow):
         self.load_hocr(hocr_file)
 
         # HOCR source editor dock
-        self.source_editor = HocrSourceEditor(self.parser, update_page_cb=self.refresh_page_view)
+        self.source_editor = HocrSourceEditor(
+            self.parser,
+            update_page_cb=self.refresh_page_view,
+            parent=self,
+        )
 
         # Splitter to control widths
         splitter = QSplitter()
