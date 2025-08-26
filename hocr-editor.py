@@ -39,6 +39,7 @@ from PySide6.QtCore import (
 )
 
 from hocr_parser import HocrParser, Word
+from resizable_rect_item import ResizableRectItem
 
 bbox_re = re.compile(r"bbox (\d+) (\d+) (\d+) (\d+)")
 xwconf_re = re.compile(r"x_wconf (\d+)")
@@ -60,41 +61,35 @@ def _invert_pixmap(pixmap: QPixmap) -> QPixmap:
     return QPixmap.fromImage(img)
 
 
-class WordItem(QGraphicsRectItem):
-    HANDLE_SIZE = 8
-
+class WordItem(ResizableRectItem):
     def __init__(self, word, inspector_update_cb, parser_update_cb):
         x0, y0, x1, y1 = word.bbox
-        super().__init__(QRectF(0, 0, x1 - x0, y1 - y0))  # local rect
+        w = x1 - x0
+        h = y1 - y0
+        super().__init__(
+            # QRectF(x0, y0, w, h), # broken text position
+            QRectF(0, 0, w, h), # local rect
+            move_done_cb=self.move_done_cb,
+            resize_done_cb=self.resize_done_cb,
+        )
         self.setPos(x0, y0)  # scene position
         self.word = word
         self.inspector_update_cb = inspector_update_cb
         self.parser_update_cb = parser_update_cb
         self.editor = None
 
-        # Enable moving and selection
-        self.setFlags(
-            QGraphicsItem.ItemIsSelectable |
-            QGraphicsItem.ItemIsMovable
-        )
-        self.setAcceptHoverEvents(True)
-
         # Text
+        # note: text position is (0, 0) relative to its parent setPos(x0, y0)
         self.text_item = QGraphicsSimpleTextItem(word.text, self)
         self._update_text_position()
 
-        # Resize handle
-        self.handle_item = QGraphicsRectItem(
-            0, 0, self.HANDLE_SIZE, self.HANDLE_SIZE, self
-        )
-        self.handle_item.setBrush(QBrush(QColor("blue")))
-        self.handle_item.setFlag(QGraphicsItem.ItemIsMovable, True)
-        self.handle_item.setCursor(Qt.SizeFDiagCursor)
-        self._update_handle_position()
+    def move_done_cb(self, pos1, pos2):
+        self._update_text_position()
+        self.update_word_bbox()
 
-        # Track drag/resizing
-        self._resizing = False
-        self._drag_offset = QPointF(0, 0)
+    def resize_done_cb(self, rect1, rect2):
+        self._update_text_position()
+        self.update_word_bbox()
 
     def set_theme_colors(self):
         """Call this after item is in a scene."""
@@ -136,43 +131,27 @@ class WordItem(QGraphicsRectItem):
 
     # ---------------- Helpers ----------------
     def _update_text_position(self):
-        self.text_item.setPos(2, 2)
+        self.text_item.setPos(self.rect().x() + 2, self.rect().y() + 2)
         font = self.text_item.font()
         font.setPointSizeF(max(10, self.rect().height() * 0.6))
         self.text_item.setFont(font)
 
-    def _update_handle_position(self):
-        rect = self.rect()
-        self.handle_item.setPos(rect.width() - self.HANDLE_SIZE,
-                                rect.height() - self.HANDLE_SIZE)
-
     def update_word_bbox(self):
-        # combine rect() and scene position
         top_left = self.mapToScene(self.rect().topLeft())
         bottom_right = self.mapToScene(self.rect().bottomRight())
-        new_bbox = (int(top_left.x()), int(top_left.y()),
-                    int(bottom_right.x()), int(bottom_right.y()))
+        new_bbox = (
+            int(top_left.x()),
+            int(top_left.y()),
+            int(bottom_right.x()),
+            int(bottom_right.y())
+        )
         old_bbox = self.word.bbox
-        self.word.bbox = new_bbox
         if old_bbox != new_bbox:
             print(f"update_word_bbox: {old_bbox} -> {new_bbox}")
+            self.word.bbox = new_bbox
             self.parser_update_cb(self.word.id, self.word.text, bbox=new_bbox)
-
-    # ---------------- Events ----------------
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and self._is_on_handle(event.pos()):
-            self._resizing = True
         else:
-            self._resizing = False
-            self._drag_offset = event.pos()
-        # self.inspector_update_cb(self)
-        super().mousePressEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        super().mouseReleaseEvent(event)
-        self._resizing = False
-        self.update_word_bbox()
-        self.inspector_update_cb(self)
+            print(f"update_word_bbox: no change")
 
     def mouseDoubleClickEvent(self, event):
         if self.editor is None:
@@ -187,6 +166,7 @@ class WordItem(QGraphicsRectItem):
             line_edit.setFocus(Qt.FocusReason.MouseFocusReason)
             line_edit.editingFinished.connect(self.finish_editing)
 
+    # ---------------- Helpers ----------------
     def commit_text(self, new_text):
         # print(f"commit_text: word.text {self.word.text!r} -> {new_text!r}")
         self.word.text = new_text
@@ -210,12 +190,6 @@ class WordItem(QGraphicsRectItem):
             proxy = self.editor
             self.editor = None
             QTimer.singleShot(0, lambda: self.scene().removeItem(proxy))
-
-    # ---------------- Helpers ----------------
-    def _is_on_handle(self, pos: QPointF) -> bool:
-        handle_rect = QRectF(self.handle_item.pos(),
-                             QSizeF(self.HANDLE_SIZE, self.HANDLE_SIZE))
-        return handle_rect.contains(pos)
 
 
 class Inspector(QWidget):
