@@ -192,23 +192,6 @@ class WordItem(ResizableRectItem):
             QTimer.singleShot(0, lambda: self.scene().removeItem(proxy))
 
 
-class Inspector(QWidget):
-    def __init__(self):
-        super().__init__()
-        layout = QVBoxLayout(self)
-        self.labels = {}
-        for field in ["id", "text", "bbox", "x_wconf"]:
-            lbl = QLabel(f"{field}: ")
-            layout.addWidget(lbl)
-            self.labels[field] = lbl
-
-    def update_word(self, word_item: WordItem):
-        self.labels["id"].setText(f"id: {word_item.word.id}")
-        self.labels["text"].setText(f"text: {word_item.word.text}")
-        self.labels["bbox"].setText(f"bbox: {' '.join(map(str, word_item.word.bbox))}")
-        self.labels["x_wconf"].setText(f"x_wconf: {word_item.word.x_wconf}")
-
-
 class PageView(QGraphicsView):
     def __init__(self, scene):
         super().__init__(scene)
