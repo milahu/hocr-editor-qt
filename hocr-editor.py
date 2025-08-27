@@ -139,10 +139,6 @@ class WordItem(ResizableRectItem):
             self.set_theme_colors()
         return super().itemChange(change, value)
 
-    def word_changed_cb(word_id, new_text):
-        self.parser.update(word_id, text=new_text)
-        self.source_editor.update_from_page()
-
     # ---------------- Helpers ----------------
     def _update_text_position(self):
         self.text_item.setPos(self.rect().x() + 2, self.rect().y() + 2)
