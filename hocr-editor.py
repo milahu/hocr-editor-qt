@@ -94,7 +94,15 @@ class WordItem(ResizableRectItem):
         self.update_word_bbox()
 
     def mouseReleaseEvent(self, event):
-        super().mouseReleaseEvent(event)
+        try:
+            super().mouseReleaseEvent(event)
+        except RuntimeError:
+            # Internal C++ object (WordItem) already deleted.
+            # the word was removed by self.scene.clear() in self.refresh_page_view()
+            # TODO better?
+            # shiboken6.isValid(self) always returns True
+            # self.destroyed.connect(self.on_destroyed) signal is never emitted
+            return
         self.word_selected_cb(self)
 
     def set_theme_colors(self):
