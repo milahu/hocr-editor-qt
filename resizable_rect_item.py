@@ -68,9 +68,10 @@ class ResizableRectItem(QGraphicsRectItem):
         self.resize_done_cb = resize_done_cb or (lambda *args: None)
         self.handleSelected = None
         self.mousePressPos = None
+        self.mousePressMouseScenePos = None
         self.mousePressRect = None
         self.setAcceptHoverEvents(True)
-        self.setFlag(QGraphicsItem.ItemIsMovable, True)
+        # self.setFlag(QGraphicsItem.ItemIsMovable, True)
         # self.setFlag(QGraphicsItem.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
         self.setFlag(QGraphicsItem.ItemIsFocusable, True)
@@ -132,6 +133,7 @@ class ResizableRectItem(QGraphicsRectItem):
             self.mouseMoveEvent = self.mouseMoveEventByHandle[self.handleSelected]
         else:
             # moving
+            self.mousePressMouseScenePos = mouseEvent.scenePos()
             self.mouseMoveEvent = self.mouseMoveEventCenter
         super().mousePressEvent(mouseEvent)
 
@@ -200,6 +202,11 @@ class ResizableRectItem(QGraphicsRectItem):
         self.handles[self.handleBottomRight].setRect(R - s1 * W, B - s1 * H, s1 * W, s1 * H)
 
     def mouseMoveEventCenter(self, mouseEvent):
+        # custom mouseMove implementation with
+        # self.setFlag(QGraphicsItem.ItemIsMovable, False)
+        if mouseEvent.buttons() & Qt.LeftButton:
+            offset = mouseEvent.scenePos() - self.mousePressMouseScenePos
+            self.setPos(self.mousePressScenePos + offset)
         super().mouseMoveEvent(mouseEvent)
 
     def mouseMoveEventTopLeft(self, mouseEvent):
