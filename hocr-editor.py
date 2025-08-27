@@ -4,6 +4,7 @@ import os
 import sys
 import re
 import argparse
+import signal
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QGraphicsView, QGraphicsScene,
     QGraphicsRectItem, QGraphicsTextItem, QGraphicsItem,
@@ -454,6 +455,9 @@ def main():
         help="Overlay color (color name or #RRGGBB)",
     )
     args = parser.parse_args()
+
+    # handle Ctrl+C from terminal
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     app = QApplication(sys.argv)
 
