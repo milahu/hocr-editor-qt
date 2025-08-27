@@ -329,6 +329,9 @@ class HocrParser:
             text_range = (end_tag.start_byte, end_tag.start_byte)
 
         bbox, xw = _parse_title(title_val)
+        if bbox is None:
+            print(f"failed to parse bbox from title {title_val!r}")
+            return None
         assert not (bbox is None), f"failed to parse bbox from title {title_val!r}"
         return Word(
             id=id_val,
@@ -409,6 +412,9 @@ class HocrParser:
                     break
 
         bbox, xw = _parse_title(title_val)
+        if bbox is None:
+            print(f"failed to parse bbox from title {title_val!r}")
+            return None
         assert not (bbox is None), f"failed to parse bbox from title {title_val!r}"
         return Word(
             id=id_val,
