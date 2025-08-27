@@ -326,6 +326,10 @@ class HocrEditor(QMainWindow):
         save_as_action.setShortcut("Ctrl+Shift+S")
         save_as_action.triggered.connect(self.save_hocr_as)
 
+        quit_action = file_menu.addAction("Quit")
+        quit_action.triggered.connect(self.close)
+        quit_action.setShortcut(QKeySequence.Quit) # shortcut: Ctrl+Q
+
         # View menu
         view_menu = menubar.addMenu("&View")
 
