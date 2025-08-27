@@ -74,6 +74,7 @@ class WordItem(ResizableRectItem):
             resize_done_cb=self.resize_done_cb,
         )
         self.setPos(x0, y0)  # scene position
+        self.setFlag(QGraphicsItem.ItemIsSelectable, True)
         self.word = word
         self.word_selected_cb = word_selected_cb
         self.word_changed_cb = word_changed_cb
@@ -91,6 +92,10 @@ class WordItem(ResizableRectItem):
     def resize_done_cb(self, rect1, rect2):
         self._update_text_position()
         self.update_word_bbox()
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        self.word_selected_cb(self)
 
     def set_theme_colors(self):
         """Call this after item is in a scene."""
