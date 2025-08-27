@@ -275,7 +275,7 @@ class HocrEditor(QMainWindow):
         )
 
         # Splitter to control widths
-        splitter = QSplitter()
+        splitter = QSplitter(Qt.Vertical)
         splitter.addWidget(self.view)
         splitter.addWidget(self.source_editor)
 
