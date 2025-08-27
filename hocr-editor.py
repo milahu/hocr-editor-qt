@@ -399,6 +399,9 @@ class HocrEditor(QMainWindow):
         # print("on_word_changed", word_id, new_text, bbox)
         self.parser.update(word_id, text=new_text, bbox=bbox)
         self.source_editor.update_from_page()
+        # update the word positions
+        # TODO incremental update
+        self.refresh_page_view()
 
     def save_hocr(self):
         """Save to original file."""
