@@ -58,11 +58,12 @@ class ResizableRectItem(QGraphicsRectItem):
             *args,
             move_done_cb=None,
             resize_done_cb=None,
+            **kwargs,
         ):
         """
         Initialize the shape.
         """
-        super().__init__(*args)
+        super().__init__(*args, **kwargs)
         self.move_done_cb = move_done_cb or (lambda *args: None)
         self.resize_done_cb = resize_done_cb or (lambda *args: None)
         self.handleSelected = None
