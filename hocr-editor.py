@@ -275,6 +275,8 @@ class HocrEditor(QMainWindow):
         self.words = []
         self.load_hocr(hocr_file)
 
+        self.changed_word_id = None
+
         # HOCR source editor dock
         self.source_editor = HocrSourceEditor(
             self.parser,
@@ -388,6 +390,19 @@ class HocrEditor(QMainWindow):
         self.scene.clear()
         self.load_words()
 
+        # select changed word in code view
+        def select_changed_word():
+            changed_word_item = self.find_word_item_by_word_id(self.changed_word_id)
+            if changed_word_item:
+                self.on_word_selected(changed_word_item)
+        QTimer.singleShot(0, select_changed_word)
+
+    def find_word_item_by_word_id(self, word_id: str):
+        for word_item in self.scene.items():
+            if not isinstance(word_item, WordItem): continue
+            if word_item.word.id == word_id:
+                return word_item
+
     def on_word_selected(self, word_item: WordItem):
         # Convert byte offsets to character offsets
         start_char = len(self.parser.source_bytes[:word_item.word.text_range[0]].decode("utf-8", errors="replace"))
@@ -409,6 +424,9 @@ class HocrEditor(QMainWindow):
         self.source_editor.update_from_page()
         # update the word positions
         # TODO incremental update
+        # no. RuntimeError: Internal C++ object (WordItem) already deleted.
+        # self.changed_word_id = word_id
+        self.changed_word_id = str(word_id) # force-copy value
         self.refresh_page_view()
 
     def save_hocr(self):
