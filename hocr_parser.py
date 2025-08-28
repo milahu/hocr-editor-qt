@@ -250,9 +250,9 @@ class HocrParser:
             if x_wconf is not None: kwargs["x_wconf"] = x_wconf
             new_title = _format_title(current_title, **kwargs)
             if current_title == new_title:
-                print(f"update title: no change")
+                print(f"word {word_id}: update title: no change")
             else:
-                print(f"update title: {current_title!r} -> {new_title!r}")
+                print(f"word {word_id}: update title: {current_title!r} -> {new_title!r}")
             # FIXME preserve the old x_wconf value (and all other semicolon-separated values in title)
             if new_title != current_title:
                 self._replace_range(node.title_value_range, new_title)
@@ -350,9 +350,9 @@ class HocrParser:
 
         bbox, xw = _parse_title(title_val)
         if bbox is None:
-            print(f"failed to parse bbox from title {title_val!r}")
+            print(f"word {id_val}: failed to parse bbox from title {title_val!r}")
             return None
-        assert not (bbox is None), f"failed to parse bbox from title {title_val!r}"
+        assert not (bbox is None), f"word {id_val}: failed to parse bbox from title {title_val!r}"
         return Word(
             id=id_val,
             text=text,
@@ -441,9 +441,9 @@ class HocrParser:
 
         bbox, xw = _parse_title(title_val)
         if bbox is None:
-            print(f"failed to parse bbox from title {title_val!r}")
+            print(f"word {id_val}: failed to parse bbox from title {title_val!r}")
             return None
-        assert not (bbox is None), f"failed to parse bbox from title {title_val!r}"
+        assert not (bbox is None), f"word {id_val}: failed to parse bbox from title {title_val!r}"
         return Word(
             id=id_val,
             text=text,
