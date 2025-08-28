@@ -275,7 +275,7 @@ class HocrEditor(QMainWindow):
         self.setWindowIcon(QIcon(os.path.dirname(__file__) + "/Eo_circle_blue_letter-h.2.png"))
 
         # track chosen overlay color
-        self.overlay_color = None
+        self.overlay_color = QColor("black")
 
         # load words into scene
         # set self.parser
