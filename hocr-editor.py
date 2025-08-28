@@ -433,6 +433,8 @@ class HocrEditor(QMainWindow):
                 return word_item
 
     def on_word_selected(self, word_item: WordItem):
+        if self.source_editor.hasFocus():
+            return
         # Convert byte offsets to character offsets
         start_char = len(self.parser.source_bytes[:word_item.word.text_range[0]].decode("utf-8", errors="replace"))
         end_char = start_char + len(word_item.word.text)
