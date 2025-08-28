@@ -200,10 +200,15 @@ class HocrSourceEditor(QPlainTextEdit):
         key = event.key()
         text = event.text()
 
-        # Cut
-        if event.matches(QKeySequence.Cut) and cur.hasSelection():
-            chunk.extend(self._record_replace_selection(cur, doc_text))
+        # Ctrl+X: Cut selected text
+        if event.matches(QKeySequence.Cut):
+            if not cur.hasSelection(): return
+            # record delete op
+            start, end = sorted([cur.selectionStart(), cur.selectionEnd()])
+            removed_text = doc_text[start:end]
+            chunk.append((REMOVE, start, removed_text))
             self._push_chunk(chunk, mode=CHUNK_DELETE)
+            super().cut() # remove text, update clipboard
             self._sync_parser_and_page()
             return
 
