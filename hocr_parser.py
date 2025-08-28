@@ -326,6 +326,70 @@ class HocrParser:
 
         return changed
 
+    @print_exceptions
+    def update_by_span(
+            self,
+            span_start: int,
+            *,
+            text: Optional[str] = None,
+            bbox: Optional[Tuple[int, int, int, int]] = None,
+            x_wconf: Optional[int] = None,
+            new_id: Optional[str] = None
+        ) -> bool:
+        """Update a word identified by its span start byte offset instead of id.
+
+        This avoids collisions when multiple elements share the same id value.
+        """
+        word = self.find_word_by_span_start(span_start)
+        if not word:
+            return False
+
+        changed = False
+
+        # 1) text
+        if text is not None and word.text_range:
+            old_text = self.source[word.text_range[0]:word.text_range[1]]
+            print(f"word {word.id}: update_by_span: update text (by span): {old_text!r} -> {text!r}")
+            self._replace_range(word.text_range, text)
+            changed = True
+            # re-find word after parse
+            word = self.find_word_by_span_start(span_start) or word
+
+        # 2) title merge (bbox/x_wconf)
+        if bbox is not None or x_wconf is not None:
+            current_title = self.source[word.title_value_range[0]:word.title_value_range[1]]
+            kwargs = {}
+            if bbox is not None:
+                kwargs["bbox"] = bbox
+            if x_wconf is not None:
+                kwargs["x_wconf"] = x_wconf
+            new_title = _format_title(current_title, **kwargs)
+            if current_title == new_title:
+                if debug_word_id and debug_word_id == word_id:
+                    print(f"word {word_id}: update_by_span: update title: no change in attribute @ {word.title_value_range}: title = {current_title!r}")
+            else:
+                if debug_word_id and debug_word_id == word_id:
+                    print(f"word {word.id}: update_by_span: update title: attribute @ {word.title_value_range}: title = {current_title!r}")
+                    print(f"word {word.id}: update_by_span: update title: {current_title!r} -> {new_title!r}")
+                self._replace_range(word.title_value_range, new_title)
+                changed = True
+                word = self.find_word_by_span_start(span_start) or word
+
+        # 3) id change
+        if new_id is not None and new_id != word.id:
+            self._replace_range(word.id_value_range, new_id)
+            changed = True
+
+        return changed
+
+    @print_exceptions
+    def find_word_by_span_start(self, span_start: int) -> Optional[Word]:
+        """Return the Word whose span_range[0] equals span_start (or None)."""
+        for w in self.find_words():
+            if w.span_range and w.span_range[0] == span_start:
+                return w
+        return None
+
     # ------------------------ core ------------------------
 
     @print_exceptions

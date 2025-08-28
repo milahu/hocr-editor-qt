@@ -193,7 +193,11 @@ class WordItem(ResizableRectItem):
             if debug_word_id and debug_word_id == self.word.id:
                 print(f"word {self.word.id}: update_word_bbox: {old_bbox} -> {new_bbox}")
             self.word.bbox = new_bbox
-            self.word_changed_cb(self.word.id, bbox=new_bbox)
+            self.word_changed_cb(
+                self.word.id,
+                bbox=new_bbox,
+                span_start=self.word.span_range[0],
+            )
         else:
             if debug_word_id and debug_word_id == self.word.id:
                 print(f"word {self.word.id}: update_word_bbox: no change")
@@ -221,7 +225,11 @@ class WordItem(ResizableRectItem):
             self.text_item.setText(new_text)
         if debug_word_id and debug_word_id == self.word.id:
             print(f"word {self.word.id}: commit_text: new_text={new_text!r}")
-        self.word_changed_cb(self.word.id, new_text, bbox=self.word.bbox)
+        self.word_changed_cb(
+            self.word.id, new_text,
+            bbox=self.word.bbox,
+            span_start=self.word.span_range[0],
+        )
         self.word_selected_cb(self)
 
     @print_exceptions
@@ -628,10 +636,22 @@ class HocrEditor(QMainWindow):
         self.source_editor.centerCursor()
 
     @print_exceptions
-    def on_word_changed(self, word_id: str, new_text: str = None, bbox=None):
-        """Called when WordItem text changes"""
-        # print("on_word_changed", word_id, new_text, bbox)
-        self.parser.update(word_id, text=new_text, bbox=bbox)
+    def on_word_changed(self, word_id: str, new_text: str = None, bbox=None, span_start: int = None):
+        """Called when WordItem text changes.
+
+        If the caller provides span_start (byte offset of the span's start tag),
+        we call parser.update_by_span() to avoid id collisions. Otherwise fallback
+        to the old parser.update(word_id, ...).
+        """
+        if debug_word_id and debug_word_id == word_id:
+            print(f"word {word_id}: on_word_changed: new_text={new_text!r}, bbox={bbox}, span_start={span_start}")
+        # Prefer span-based update (disambiguates duplicate ids)
+        if span_start is not None:
+            ok = self.parser.update_by_span(span_start, text=new_text, bbox=bbox)
+        else:
+            ok = self.parser.update(word_id, text=new_text, bbox=bbox)
+
+        # reflect changed source immediately in code editor + redraw
         self.source_editor.update_from_page()
         # update the word positions
         # TODO incremental update
