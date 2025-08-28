@@ -195,6 +195,7 @@ class HocrParser:
             stack.extend(n.children)
         return pages
 
+    @print_exceptions
     def _extract_page_node(self, element, sb: bytes) -> Optional[Word]:
         # Get start tag or STag
         if self._lang == "html":
@@ -254,6 +255,7 @@ class HocrParser:
                 span_range=(0,0),
             )
 
+    @print_exceptions
     def get_word(self, word_id: str) -> Optional[Word]:
         return self._index_words().get(word_id)
 
@@ -321,6 +323,7 @@ class HocrParser:
         self.tree = self.parser.parse(self.source_bytes)
         self._cached_index: Optional[Dict[str, Word]] = None
 
+    @print_exceptions
     def _index_words(self) -> Dict[str, Word]:
         if self._cached_index is not None:
             return self._cached_index
@@ -347,6 +350,7 @@ class HocrParser:
 
     # ------------------------ extraction: HTML ------------------------
 
+    @print_exceptions
     def _extract_word_html(self, element, sb: bytes) -> Optional[Word]:
         # element = start_tag, (text|element)*, end_tag
         # Find start_tag
@@ -409,6 +413,7 @@ class HocrParser:
             span_range=(start_tag.start_byte, end_tag.end_byte),
         )
 
+    @print_exceptions
     def _read_html_attribute(self, attr_node, sb: bytes):
         """
         Returns (name, value_without_quotes, inner_range) for HTML grammar.
@@ -437,6 +442,7 @@ class HocrParser:
 
     # ------------------------ extraction: XML ------------------------
 
+    @print_exceptions
     def _extract_word_xml(self, element, sb: bytes) -> Optional[Word]:
         # element -> STag, content?, ETag | EmptyElemTag
         # TODO rename to start_tags
@@ -500,6 +506,7 @@ class HocrParser:
             span_range=(st.start_byte, end_tag.end_byte),
         )
 
+    @print_exceptions
     def _read_xml_attribute(self, attr_node, sb: bytes):
         """
         Returns (name, value_without_quotes, inner_range) for XML grammar (tree-sitter-xml).
@@ -530,6 +537,7 @@ class HocrParser:
 
     # ------------------------ editing ------------------------
 
+    @print_exceptions
     def _replace_range(self, byte_range: Tuple[int, int], new_content_utf8: str):
         start, end = byte_range
         before = self.source_bytes[:start]
@@ -541,6 +549,7 @@ class HocrParser:
         self.tree = self.parser.parse(self.source_bytes)
         self._cached_index = None
 
+    @print_exceptions
     def find_word_at_offset(self, pos: int) -> Optional[Word]:
         for word in self.find_words():
             if word.span_range[0] <= pos < word.span_range[1]:

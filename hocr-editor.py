@@ -169,6 +169,7 @@ class WordItem(ResizableRectItem):
         return super().itemChange(change, value)
 
     # ---------------- Helpers ----------------
+    @print_exceptions
     def _update_text_position(self):
         if not self.text_item: return
         self.text_item.setPos(self.rect().x() + 2, self.rect().y() + 2)
@@ -546,6 +547,7 @@ class HocrEditor(QMainWindow):
                         self.word_items[wid] = list()
                     self.word_items[wid].append(item)
         # select changed word in code view
+        @print_exceptions
         def select_changed_word():
             changed_word_item = self.find_word_item_by_word_id(self.changed_word_id)
             if changed_word_item:
