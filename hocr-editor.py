@@ -81,10 +81,14 @@ class WordItem(ResizableRectItem):
         self.word_changed_cb = word_changed_cb
         self.editor = None
 
-        # Text
-        # note: text position is (0, 0) relative to its parent setPos(x0, y0)
-        self.text_item = QGraphicsSimpleTextItem(word.text, self)
-        self._update_text_position()
+        if 0:
+            # Text
+            # note: text position is (0, 0) relative to its parent setPos(x0, y0)
+            self.text_item = QGraphicsSimpleTextItem(word.text, self)
+            self._update_text_position()
+        else:
+            # disable text overlay
+            self.text_item = None
 
     def move_done_cb(self, pos1, pos2):
         self._update_text_position()
@@ -116,8 +120,9 @@ class WordItem(ResizableRectItem):
             # bg_color = palette.color(palette.Base) # background color (optional)
             fg_color = palette.color(palette.ColorRole.Text) # text / line color
             bg_color = palette.color(palette.ColorRole.Base) # background color (optional)
-            # Text color
-            self.text_item.setBrush(QBrush(fg_color))
+            if self.text_item:
+                # Text color
+                self.text_item.setBrush(QBrush(fg_color))
             # Rectangle outline
             # pen = QPen(fg_color, 1) # solid line
             # pen = QPen(fg_color, 1, Qt.DashLine) # dashed line
@@ -129,7 +134,8 @@ class WordItem(ResizableRectItem):
 
     def set_text_color(self, color):
         """Apply color to text and bbox outline."""
-        self.text_item.setBrush(color)
+        if self.text_item:
+            self.text_item.setBrush(color)
         self.setPen(QPen(color, 1))
 
     # Override QGraphicsItem hook when added to scene
@@ -142,6 +148,7 @@ class WordItem(ResizableRectItem):
 
     # ---------------- Helpers ----------------
     def _update_text_position(self):
+        if not self.text_item: return
         self.text_item.setPos(self.rect().x() + 2, self.rect().y() + 2)
         font = self.text_item.font()
         font.setPointSizeF(max(10, self.rect().height() * 0.6))
@@ -181,7 +188,8 @@ class WordItem(ResizableRectItem):
     def commit_text(self, new_text):
         # print(f"commit_text: word.text {self.word.text!r} -> {new_text!r}")
         self.word.text = new_text
-        self.text_item.setText(new_text)
+        if self.text_item:
+            self.text_item.setText(new_text)
         self.word_changed_cb(self.word.id, new_text, bbox=self.word.bbox)
         self.word_selected_cb(self)
 
@@ -405,7 +413,8 @@ class HocrEditor(QMainWindow):
                 item = self.word_items[wid]
                 # update text and bbox
                 if item.word.text != word.text:
-                    item.text_item.setText(word.text)
+                    if item.text_item:
+                        item.text_item.setText(word.text)
                 if item.word.bbox != word.bbox:
                     x0, y0, x1, y1 = word.bbox
                     item.setPos(x0, y0)
