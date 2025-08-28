@@ -94,6 +94,18 @@ class WordItem(ResizableRectItem):
             # disable text overlay
             self.text_item = None
 
+    def __str__(self):
+        pos = self.scenePos()
+        return (
+            f"WordItem(" +
+            f"span_range={self.word.span_range!r}" +
+            f", id={self.word.id!r}" +
+            f", text={self.word.text!r}" +
+            f", bbox={self.word.bbox!r}" +
+            f", pos={(pos.x(), pos.y())!r}" +
+            f")"
+        )
+
     @print_exceptions
     def move_done_cb(self, pos1, pos2):
         self._update_text_position()
