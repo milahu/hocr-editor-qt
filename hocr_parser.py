@@ -82,23 +82,33 @@ def _parse_title(title_value: str):
     return bbox, xw
 
 
-def _format_title(existing: str,
-                  bbox: Optional[Tuple[int, int, int, int]] = None,
-                  x_wconf: Optional[int] = None) -> str:
-    """Merge bbox/x_wconf into an existing semicolon-separated title value.
-    Preserves unknown fields and order (except we ensure bbox first if set).
+def _format_title(
+        existing: str,
+        **kwargs
+    ) -> str:
+    """Merge new title values (bbox, ...) into an existing semicolon-separated title value.
+    Preserves unknown fields and order.
     """
+    # print("_format_title existing", repr(existing))
     existing = existing or ""
-    parts = [p.strip() for p in existing.split(";")]
-    # remove existing bbox/x_wconf from parts
-    rest: List[str] = [p for p in parts if p and not p.startswith("bbox") and not p.startswith("x_wconf")]
-    if bbox is not None:
-        rest.insert(0, f"bbox {bbox[0]} {bbox[1]} {bbox[2]} {bbox[3]}")
-    if x_wconf is not None:
-        rest.append(f"x_wconf {x_wconf}")
-    # remove duplicates and empty
-    rest = [p for p in rest if p]
-    return "; ".join(rest)
+    # title_items = [] # preserve duplicate keys
+    title_dict = {}
+    for part in existing.split(";"):
+        key_val = re.split(r"\s+", part.strip(), 1)
+        if len(key_val) == 1:
+            if key_val[0] == "": continue # both key and val are empty
+            key_val.append("")
+        key, val = key_val
+        # title_items.append((key, val))
+        title_dict[key] = val
+    import json
+    # print("_format_title title_dict", json.dumps(title_dict, indent=2))
+    # print("_format_title kwargs", json.dumps(kwargs, indent=2))
+    for key, val in kwargs.items():
+        if isinstance(val, (list, tuple)):
+            val = " ".join(map(str, val))
+        title_dict[key] = str(val)
+    return "; ".join([f"{key} {val}" for key, val in title_dict.items()])
 
 
 @dataclass
@@ -235,7 +245,10 @@ class HocrParser:
         # 2) title merge (bbox/x_wconf)
         if bbox is not None or x_wconf is not None:
             current_title = self.source[node.title_value_range[0]:node.title_value_range[1]]
-            new_title = _format_title(current_title, bbox=bbox, x_wconf=x_wconf)
+            kwargs = dict()
+            if bbox is not None: kwargs["bbox"] = bbox
+            if x_wconf is not None: kwargs["x_wconf"] = x_wconf
+            new_title = _format_title(current_title, **kwargs)
             if current_title == new_title:
                 print(f"update title: no change")
             else:
