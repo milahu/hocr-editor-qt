@@ -199,6 +199,7 @@ class HocrSourceEditor(QPlainTextEdit):
 
         key = event.key()
         text = event.text()
+        modifiers = event.modifiers()
 
         # Ctrl+X: Cut selected text
         if event.matches(QKeySequence.Cut):
@@ -210,6 +211,30 @@ class HocrSourceEditor(QPlainTextEdit):
             self._push_chunk(chunk, mode=CHUNK_DELETE)
             super().cut() # remove text, update clipboard
             self._sync_parser_and_page()
+            return
+
+        # Ctrl+Backspace: delete previous word
+        if key == Qt.Key_Backspace and modifiers & Qt.ControlModifier:
+            if cur.position() > 0:
+                start = self._word_start_before_cursor(cur.position(), doc_text)
+                removed_text = doc_text[start:cur.position()]
+                self._apply_remove(start, cur.position() - start)
+                cur.setPosition(start)
+                self.setTextCursor(cur)
+                chunk.append((REMOVE, start, removed_text))
+                self._push_chunk(chunk, mode=CHUNK_DELETE)
+                self._sync_parser_and_page()
+            return
+
+        # Ctrl+Delete: delete next word
+        if key == Qt.Key_Delete and modifiers & Qt.ControlModifier:
+            if cur.position() < len(doc_text):
+                end = self._word_end_after_cursor(cur.position(), doc_text)
+                removed_text = doc_text[cur.position():end]
+                self._apply_remove(cur.position(), end - cur.position())
+                chunk.append((REMOVE, cur.position(), removed_text))
+                self._push_chunk(chunk, mode=CHUNK_DELETE)
+                self._sync_parser_and_page()
             return
 
         # Backspace/Delete
@@ -277,6 +302,21 @@ class HocrSourceEditor(QPlainTextEdit):
         chunk.append((INSERT, pos, pasted))
         self._push_chunk(chunk)
         self._sync_parser_and_page()
+
+    # ---- helpers for word boundaries ----
+    def _word_start_before_cursor(self, pos: int, text: str) -> int:
+        """Find start of the word before pos."""
+        if pos == 0:
+            return 0
+        import re
+        matches = list(re.finditer(r'\b\w+\b', text[:pos]))
+        return matches[-1].start() if matches else 0
+
+    def _word_end_after_cursor(self, pos: int, text: str) -> int:
+        """Find end of the word after pos."""
+        import re
+        matches = list(re.finditer(r'\b\w+\b', text[pos:]))
+        return pos + matches[0].end() if matches else len(text)
 
     # ---- sync from page ----
     def on_text_changed(self):
