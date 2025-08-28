@@ -12,6 +12,9 @@ from PySide6.QtCore import (
     Qt,
     QTimer,
 )
+from typing import (
+    Any,
+)
 from hocr_parser import HocrParser, Word
 
 
@@ -41,7 +44,7 @@ class HocrSourceEditor(QPlainTextEdit):
         super().__init__(parent)
         self.parser = parser
         self.update_page_cb = update_page_cb  # callback to refresh page view
-        self.setPlainText(parser.source)
+        self.setPlainText(self.parser.get_source_string())
         self.textChanged.connect(self.on_text_changed)
         self.cursorPositionChanged.connect(self.on_cursor_position_changed)
         self.cursor_sync_cb = cursor_sync_cb
@@ -73,6 +76,12 @@ class HocrSourceEditor(QPlainTextEdit):
         self._delete_timer = QTimer(self)
         self._delete_timer.setSingleShot(True)
         self._delete_timer.timeout.connect(self._commit_delete_chunk)
+
+    def toBytes(self) -> bytes:
+        return self.toPlainText().encode(self.parser.source_encoding, errors="replace")
+
+    def setBytes(self, _bytes: bytes):
+        return self.setPlainText(_bytes.decode(self.parser.source_encoding, errors="replace"))
 
     # ---- low-level apply helpers ----
     def _apply_insert(self, pos: int, text: str):
@@ -124,7 +133,7 @@ class HocrSourceEditor(QPlainTextEdit):
             self.undo_stack.append(ops)
             self.redo_stack.clear()
 
-    def undo_op(self):
+    def undo_op(self) -> None:
         self._commit_all_chunks()
         if not self.undo_stack:
             return
@@ -165,7 +174,7 @@ class HocrSourceEditor(QPlainTextEdit):
 
     def _sync_parser_and_page(self):
         new_source = self.toPlainText()
-        self.parser.set_source(new_source)
+        self.parser.set_source_string(new_source)
         self.update_page_cb()
 
     # ---- record ops ----
@@ -178,7 +187,7 @@ class HocrSourceEditor(QPlainTextEdit):
         return [(REMOVE, start, removed_text)]
 
     # ---- key / paste overrides ----
-    def keyPressEvent(self, event):
+    def keyPressEvent(self, event) -> None:
         if event.matches(QKeySequence.Undo): # Ctrl+Z
             self.undo_op()
             return
@@ -287,7 +296,7 @@ class HocrSourceEditor(QPlainTextEdit):
 
         super().keyPressEvent(event)
 
-    def insertFromMimeData(self, source):
+    def insertFromMimeData(self, source: Any) -> None:
         if self._updating:
             return super().insertFromMimeData(source)
         cur = self.textCursor()
@@ -324,7 +333,7 @@ class HocrSourceEditor(QPlainTextEdit):
             return
         self._updating = True
         try:
-            self.parser.set_source(self.toPlainText())
+            self.parser.set_source_string(self.toPlainText())
             self.update_page_cb()
         finally:
             self._updating = False
@@ -334,7 +343,7 @@ class HocrSourceEditor(QPlainTextEdit):
             return
         self._updating = True
         try:
-            self.setPlainText(self.parser.source)
+            self.setPlainText(self.parser.get_source_string())
         finally:
             self._updating = False
 

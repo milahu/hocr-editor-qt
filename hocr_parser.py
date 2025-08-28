@@ -12,12 +12,12 @@ Requirements (pip):
 
 Usage:
     from hocr_parser import HocrParser
-    src = Path("doc.hocr.html").read_text(encoding="utf-8")
+    src = Path("doc.hocr.html").read()
     hp = HocrParser(src)
     words = hp.find_words()  # list[Word]
-    hp.update(word_id=words[0].id, text="NEW")
+    hp.update(word_id=words[0].id, text=b"NEW")
     hp.update(word_id=words[0].id, bbox=(10,20,100,60), x_wconf=95)
-    new_src = hp.source  # updated HTML/XML string
+    new_src = hp.source_bytes  # updated HTML/XML bytestring
 
 Notes:
 - Robust to both grammars' node/field name differences.
@@ -31,6 +31,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Tuple
+from typing import (
+    Any,
+)
 import re
 import traceback
 
@@ -41,7 +44,7 @@ debug = False
 # debug = True
 
 debug_word_id = None
-# debug_word_id = "word_1_15"
+# debug_word_id = b"word_1_15"
 
 HTML_LANG = get_language("html")
 XML_LANG = get_language("xml")
@@ -49,8 +52,8 @@ XML_LANG = get_language("xml")
 # ------------------------ utilities ------------------------
 
 
-_TITLE_BBOX_RE = re.compile(r"bbox\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)", re.IGNORECASE)
-_TITLE_XWCONF_RE = re.compile(r"x_wconf\s+(-?\d+)", re.IGNORECASE)
+_TITLE_BBOX_RE = re.compile(rb"bbox\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)", re.IGNORECASE)
+_TITLE_XWCONF_RE = re.compile(rb"x_wconf\s+(-?\d+)", re.IGNORECASE)
 
 
 # dont let qt swallow python exceptions
@@ -91,9 +94,9 @@ def print_exceptions(func):
     return print_exceptions_wrapper
 
 
-def _parse_title(title_value: str):
+def _parse_title(title_value: bytes):
     """Return (bbox_tuple_or_None, x_wconf_or_None) from the raw 'title' value (no quotes)."""
-    s = (title_value or "").strip()
+    s = (title_value or b"").strip()
     bbox = None
     xw = None
 
@@ -112,11 +115,11 @@ def _parse_title(title_value: str):
             xw = None
 
     # Fallback: token scan if regex failed
-    if bbox is None and "bbox" in s.lower():
+    if bbox is None and b"bbox" in s.lower():
         try:
-            parts = re.split(r"[;\s]+", s)
+            parts = re.split(rb"[;\s]+", s)
             for i, p in enumerate(parts):
-                if p.lower() == "bbox" and i + 4 < len(parts):
+                if p.lower() == b"bbox" and i + 4 < len(parts):
                     bx = tuple(map(int, parts[i+1:i+5]))
                     if len(bx) == 4:
                         bbox = bx
@@ -129,32 +132,40 @@ def _parse_title(title_value: str):
 
 @print_exceptions
 def _format_title(
-        existing: str,
+        existing: bytes,
         **kwargs
-    ) -> str:
+    ) -> bytes:
     """Merge new title values (bbox, ...) into an existing semicolon-separated title value.
     Preserves unknown fields and order.
     """
+    assert isinstance(existing, bytes)
     # print("_format_title existing", repr(existing))
-    existing = existing or ""
+    existing = existing or b""
     # title_items = [] # preserve duplicate keys
     title_dict = {}
-    for part in existing.split(";"):
-        key_val = re.split(r"\s+", part.strip(), 1)
+    for part in existing.split(b";"):
+        key_val = re.split(rb"\s+", part.strip(), 1)
         if len(key_val) == 1:
-            if key_val[0] == "": continue # both key and val are empty
-            key_val.append("")
+            if key_val[0] == b"": continue # both key and val are empty
+            key_val.append(b"")
         key, val = key_val
         # title_items.append((key, val))
         title_dict[key] = val
-    import json
+    # import json
     # print("_format_title title_dict", json.dumps(title_dict, indent=2))
     # print("_format_title kwargs", json.dumps(kwargs, indent=2))
+    @print_exceptions
+    def encode_val(val):
+        if isinstance(val, bytes):
+            return val
+        return str(val).encode("utf8")
     for key, val in kwargs.items():
+        key = encode_val(key)
         if isinstance(val, (list, tuple)):
-            val = " ".join(map(str, val))
-        title_dict[key] = str(val)
-    new_title = "; ".join([f"{key} {val}" for key, val in title_dict.items()])
+            val = b" ".join(map(encode_val, val))
+        val = encode_val(val)
+        title_dict[key] = val
+    new_title = b"; ".join([(key + b" " + val) for key, val in title_dict.items()])
     if debug:
         print(f"_format_title: {existing!r} -> {new_title!r}")
     return new_title
@@ -162,24 +173,30 @@ def _format_title(
 
 @dataclass
 class Word:
-    id: str
-    text: str
+    id: bytes
+    text: bytes
     bbox: Optional[Tuple[int, int, int, int]]
     x_wconf: Optional[int]
     # raw title value (without surrounding quotes)
-    title_value: str
+    title_value: Optional[bytes]
     # precise byte ranges (start, end) in source_bytes
     text_range: Tuple[int, int]
     title_value_range: Tuple[int, int]
     id_value_range: Tuple[int, int]
     element_range: Tuple[int, int]
     span_range: Tuple[int, int]
+    # @print_exceptions
+    # def __init__(self, *a, **k):
+    #     super().__init__(*a, **k)
+    #     assert isinstance(self.id, bytes)
+    #     assert isinstance(self.text, bytes)
+    #     assert isinstance(self.title_value, bytes)
 
 
 class HocrParser:
     @print_exceptions
-    def __init__(self, source: str):
-        self.set_source(source)
+    def __init__(self, source_bytes: bytes):
+        self.set_source_bytes(source_bytes)
 
     # ------------------------ public API ------------------------
 
@@ -213,26 +230,26 @@ class HocrParser:
             start_tag = next((c for c in element.children if c.type=="start_tag"), None)
             if not start_tag:
                 return None
-            attrs = {}
+            attrs: dict[bytes, Tuple[bytes, Tuple[int, int]]] = {}
             for c in start_tag.children:
                 if c.type=="attribute":
                     n,v,vr = self._read_html_attribute(c, sb)
                     if n: attrs[n] = (v,vr)
-            cls_val = attrs.get("class", ("", (0,0)))[0]
-            if "ocr_page" not in cls_val.split(): return None
-            title_val, title_range = attrs.get("title", ("", (0,0)))
+            cls_val = attrs.get(b"class", (b"", (0,0)))[0]
+            if b"ocr_page" not in cls_val.split(): return None
+            title_val, title_range = attrs.get(b"title", (b"", (0,0)))
             bbox,_ = _parse_title(title_val)
             if not bbox: bbox=(0,0,0,0)
             # TODO dont use "class Word" here
             return Word(
-                id=attrs.get("id", ("", (0,0)))[0],
-                text="",
+                id=attrs.get(b"id", (b"", (0,0)))[0],
+                text=b"",
                 bbox=bbox,
                 x_wconf=None,
                 title_value=title_val,
                 text_range=(0,0),
                 title_value_range=title_range,
-                id_value_range=attrs.get("id",(None,(0,0)))[1],
+                id_value_range=attrs.get(b"id",(b"",(0,0)))[1],
                 element_range=(element.start_byte, element.end_byte),
                 span_range=(0,0),
             )
@@ -242,26 +259,26 @@ class HocrParser:
             if not stags: return None
             # TODO rename to start_tag
             st = stags[0]
-            attrs = {}
+            attrs: dict[bytes, Tuple[bytes, Tuple[int, int]]] = {}
             for c in st.children:
                 if c.type=="Attribute":
                     n,v,vr = self._read_xml_attribute(c, sb)
                     if n: attrs[n]=(v,vr)
-            cls_val = attrs.get("class", ("", (0,0)))[0]
-            if "ocr_page" not in cls_val.split(): return None
-            title_val, title_range = attrs.get("title", ("", (0,0)))
+            cls_val = attrs.get(b"class", (b"", (0,0)))[0]
+            if b"ocr_page" not in cls_val.split(): return None
+            title_val, title_range = attrs.get(b"title", (b"", (0,0)))
             bbox,_ = _parse_title(title_val)
             if not bbox: bbox=(0,0,0,0)
             # TODO dont use "class Word" here
             return Word(
-                id=attrs.get("id", ("", (0,0)))[0],
-                text="",
+                id=attrs.get(b"id", (b"", (0,0)))[0],
+                text=b"",
                 bbox=bbox,
                 x_wconf=None,
                 title_value=title_val,
                 text_range=(0,0),
                 title_value_range=title_range,
-                id_value_range=attrs.get("id",(None,(0,0)))[1],
+                id_value_range=attrs.get(b"id",(None,(0,0)))[1],
                 element_range=(element.start_byte, element.end_byte),
                 span_range=(0,0),
             )
@@ -292,7 +309,7 @@ class HocrParser:
         # 1) text
         if text is not None and node.text_range:
             if debug_word_id and debug_word_id == word_id:
-                old_text = self.source[node.text_range[0]:node.text_range[1]]
+                old_text = self.source_bytes[node.text_range[0]:node.text_range[1]]
                 print(f"word {word_id}: update: update text: {old_text!r} -> {text!r}")
             self._replace_range(node.text_range, text)
             changed = True
@@ -302,8 +319,8 @@ class HocrParser:
 
         # 2) title merge (bbox/x_wconf)
         if bbox is not None or x_wconf is not None:
-            current_title = self.source[node.title_value_range[0]:node.title_value_range[1]]
-            kwargs = dict()
+            current_title = self.source_bytes[node.title_value_range[0]:node.title_value_range[1]]
+            kwargs: dict[str, Any] = dict()
             if bbox is not None: kwargs["bbox"] = bbox
             if x_wconf is not None: kwargs["x_wconf"] = x_wconf
             new_title = _format_title(current_title, **kwargs)
@@ -350,7 +367,7 @@ class HocrParser:
 
         # 1) text
         if text is not None and word.text_range:
-            old_text = self.source[word.text_range[0]:word.text_range[1]]
+            old_text = self.source_bytes[word.text_range[0]:word.text_range[1]]
             print(f"word {word.id}: update_by_span: update text (by span): {old_text!r} -> {text!r}")
             self._replace_range(word.text_range, text)
             changed = True
@@ -359,18 +376,18 @@ class HocrParser:
 
         # 2) title merge (bbox/x_wconf)
         if bbox is not None or x_wconf is not None:
-            current_title = self.source[word.title_value_range[0]:word.title_value_range[1]]
-            kwargs = {}
+            current_title = self.source_bytes[word.title_value_range[0]:word.title_value_range[1]]
+            kwargs: dict[str, Any] = {}
             if bbox is not None:
                 kwargs["bbox"] = bbox
             if x_wconf is not None:
                 kwargs["x_wconf"] = x_wconf
             new_title = _format_title(current_title, **kwargs)
             if current_title == new_title:
-                if debug_word_id and debug_word_id == word_id:
-                    print(f"word {word_id}: update_by_span: update title: no change in attribute @ {word.title_value_range}: title = {current_title!r}")
+                if debug_word_id and debug_word_id == word.id:
+                    print(f"word {word.id}: update_by_span: update title: no change in attribute @ {word.title_value_range}: title = {current_title!r}")
             else:
-                if debug_word_id and debug_word_id == word_id:
+                if debug_word_id and debug_word_id == word.id:
                     print(f"word {word.id}: update_by_span: update title: attribute @ {word.title_value_range}: title = {current_title!r}")
                     print(f"word {word.id}: update_by_span: update title: {current_title!r} -> {new_title!r}")
                 self._replace_range(word.title_value_range, new_title)
@@ -395,20 +412,34 @@ class HocrParser:
     # ------------------------ core ------------------------
 
     @print_exceptions
-    def set_source(self, source: str):
-        self.source = source
-        self.source_bytes = source.encode("utf-8")
-        self._lang = _detect_lang(source)
+    def set_source_bytes(self, source_bytes: bytes, source_encoding="utf-8"):
+        assert isinstance(source_bytes, bytes)
+        self.source_bytes = source_bytes
+        self.source_encoding = source_encoding
+        self._lang = _detect_lang(self.source_bytes)
         lang = XML_LANG if self._lang == "xml" else HTML_LANG
         self.parser = Parser(lang)
         self.tree = self.parser.parse(self.source_bytes)
-        self._cached_index: Optional[Dict[str, Word]] = None
+        self._cached_index: Optional[Dict[bytes, Word]] = None
 
     @print_exceptions
-    def _index_words(self) -> Dict[str, Word]:
+    def set_source_string(self, source: str, encoding=None):
+        encoding = encoding or self.source_encoding
+        assert isinstance(source, str)
+        source_bytes = source.encode(encoding, errors="replace")
+        self.set_source_bytes(source_bytes)
+
+    @print_exceptions
+    def get_source_string(self, encoding=None) -> str:
+        encoding = encoding or self.source_encoding
+        source = self.source_bytes.decode(encoding, errors="replace")
+        return source
+
+    @print_exceptions
+    def _index_words(self) -> Dict[bytes, Word]:
         if self._cached_index is not None:
             return self._cached_index
-        words: Dict[str, Word] = {}
+        words: dict[bytes, Word] = {}
         root = self.tree.root_node
         stack = [root]
         sb = self.source_bytes
@@ -440,26 +471,26 @@ class HocrParser:
         start_tag = element.children[0]
 
         tag_name = None
-        attrs: Dict[str, Tuple[str, Tuple[int, int]]] = {}
+        attrs: dict[bytes, Tuple[bytes, Tuple[int, int]]] = {}
 
         for ch in start_tag.children:
             t = ch.type
             if t == "tag_name":
-                tag_name = sb[ch.start_byte:ch.end_byte].decode()
+                tag_name = sb[ch.start_byte:ch.end_byte]
             elif t == "attribute":
                 n, v, vr = self._read_html_attribute(ch, sb)
                 if n:
                     attrs[n] = (v, vr)
 
-        if (tag_name or "").lower() != "span":
+        if (tag_name or b"").lower() != b"span":
             return None
-        cls_val = attrs.get("class", ("", (0, 0)))[0]
-        if not _class_has(cls_val, "ocrx_word"):
+        cls_val = attrs.get(b"class", (b"", (0, 0)))[0]
+        if not _class_has(cls_val, b"ocrx_word"):
             return None
 
         # id & title
-        id_val, id_range = attrs.get("id", ("", (0, 0)))
-        title_val, title_range = attrs.get("title", ("", (0, 0)))
+        id_val, id_range = attrs.get(b"id", (b"", (0, 0)))
+        title_val, title_range = attrs.get(b"title", (b"", (0, 0)))
 
         if debug_word_id and debug_word_id == id_val:
             for n, (v, vr) in attrs.items():
@@ -473,18 +504,18 @@ class HocrParser:
                 break
         end_tag = element.children[-1]
         if text_node is not None:
-            text = sb[text_node.start_byte:text_node.end_byte].decode()
+            text = sb[text_node.start_byte:text_node.end_byte]
             text_range = (text_node.start_byte, text_node.end_byte)
         else:
             # empty span: zero-length before end_tag
-            text = ""
+            text = b""
             text_range = (end_tag.start_byte, end_tag.start_byte)
 
         bbox, xw = _parse_title(title_val)
         if bbox is None:
-            print(f"word {id_val}: failed to parse bbox from title {title_val!r}")
+            print(f"word {id_val!r}: failed to parse bbox from title {title_val!r}")
             return None
-        assert not (bbox is None), f"word {id_val}: failed to parse bbox from title {title_val!r}"
+        assert not (bbox is None), f"word {id_val!r}: failed to parse bbox from title {title_val!r}"
         return Word(
             id=id_val,
             text=text,
@@ -499,7 +530,7 @@ class HocrParser:
         )
 
     @print_exceptions
-    def _read_html_attribute(self, attr_node, sb: bytes):
+    def _read_html_attribute(self, attr_node, sb: bytes) -> Tuple[Optional[bytes], bytes, Tuple[int, int]]:
         """
         Returns (name, value_without_quotes, inner_range) for HTML grammar.
         Handles multiple possible child node type names across html grammars.
@@ -516,13 +547,13 @@ class HocrParser:
                     value_node = c
 
         if not name_node or not value_node:
-            return None, "", (attr_node.start_byte, attr_node.start_byte)
+            return None, b"", (attr_node.start_byte, attr_node.start_byte)
 
-        name = sb[name_node.start_byte:name_node.end_byte].decode()
-        raw = sb[value_node.start_byte:value_node.end_byte].decode()
+        name = sb[name_node.start_byte:name_node.end_byte]
+        raw = sb[value_node.start_byte:value_node.end_byte]
 
         inner_start, inner_end = _strip_quote_range(value_node.start_byte, value_node.end_byte, raw)
-        value = sb[inner_start:inner_end].decode()
+        value = sb[inner_start:inner_end]
         return name, value, (inner_start, inner_end)
 
     # ------------------------ extraction: XML ------------------------
@@ -538,37 +569,37 @@ class HocrParser:
         st = stags[0]
 
         tag_name = None
-        attrs: Dict[str, Tuple[str, Tuple[int, int]]] = {}
+        attrs: dict[bytes, Tuple[bytes, Tuple[int, int]]] = {}
         for c in st.children:
             if c.type == "Name" and tag_name is None:
-                tag_name = sb[c.start_byte:c.end_byte].decode()
+                tag_name = sb[c.start_byte:c.end_byte]
             elif c.type == "Attribute":
                 n, v, vr = self._read_xml_attribute(c, sb)
                 if n:
                     attrs[n] = (v, vr)
 
-        if (tag_name or "").lower() != "span":
+        if (tag_name or b"").lower() != b"span":
             return None
-        cls_val = attrs.get("class", ("", (0, 0)))[0]
-        if not _class_has(cls_val, "ocrx_word"):
+        cls_val = attrs.get(b"class", (b"", (0, 0)))[0]
+        if not _class_has(cls_val, b"ocrx_word"):
             return None
 
-        id_val, id_range = attrs.get("id", ("", (0, 0)))
-        title_val, title_range = attrs.get("title", ("", (0, 0)))
+        id_val, id_range = attrs.get(b"id", (b"", (0, 0)))
+        title_val, title_range = attrs.get(b"title", (b"", (0, 0)))
 
         if debug_word_id and debug_word_id == id_val:
             for n, (v, vr) in attrs.items():
                 print(f"_extract_word_xml: attribute @ {vr}: {n} = {v!r}")
 
         # content text
-        text = ""
+        text = b""
         text_range: Tuple[int, int] = (element.start_byte, element.start_byte)
         contents = [c for c in element.children if c.type == "content"]
         if contents:
             # find first CharData as text node
             for sub in contents[0].children:
                 if sub.type == "CharData":
-                    text = sb[sub.start_byte:sub.end_byte].decode()
+                    text = sb[sub.start_byte:sub.end_byte]
                     text_range = (sub.start_byte, sub.end_byte)
                     break
 
@@ -579,9 +610,9 @@ class HocrParser:
 
         bbox, xw = _parse_title(title_val)
         if bbox is None:
-            print(f"word {id_val}: failed to parse bbox from title {title_val!r}")
+            print(f"word {id_val!r}: failed to parse bbox from title {title_val!r}")
             return None
-        assert not (bbox is None), f"word {id_val}: failed to parse bbox from title {title_val!r}"
+        assert not (bbox is None), f"word {id_val!r}: failed to parse bbox from title {title_val!r}"
         return Word(
             id=id_val,
             text=text,
@@ -596,7 +627,7 @@ class HocrParser:
         )
 
     @print_exceptions
-    def _read_xml_attribute(self, attr_node, sb: bytes):
+    def _read_xml_attribute(self, attr_node, sb: bytes) -> Tuple[Optional[bytes], bytes, Tuple[int, int]]:
         """
         Returns (name, value_without_quotes, inner_range) for XML grammar (tree-sitter-xml).
         """
@@ -615,28 +646,29 @@ class HocrParser:
                     value_node = c
 
         if not name_node or not value_node:
-            return None, "", (attr_node.start_byte, attr_node.start_byte)
+            return None, b"", (attr_node.start_byte, attr_node.start_byte)
 
-        name = sb[name_node.start_byte:name_node.end_byte].decode()
-        raw = sb[value_node.start_byte:value_node.end_byte].decode()
+        name = sb[name_node.start_byte:name_node.end_byte]
+        raw = sb[value_node.start_byte:value_node.end_byte]
 
         inner_start, inner_end = _strip_quote_range(value_node.start_byte, value_node.end_byte, raw)
-        value = sb[inner_start:inner_end].decode()
+        value = sb[inner_start:inner_end]
         return name, value, (inner_start, inner_end)
 
     # ------------------------ editing ------------------------
 
     @print_exceptions
-    def _replace_range(self, byte_range: Tuple[int, int], new_content_utf8: str):
+    def _replace_range(self, byte_range: Tuple[int, int], new_bytes: bytes):
+        assert isinstance(new_bytes, bytes)
+        assert isinstance(self.source_bytes, bytes)
         start, end = byte_range
         if debug:
-            range_text_before = self.source_bytes[start:end]
-            print(f"_replace_range: range {byte_range}: {range_text_before!r} -> {new_content_utf8!r}")
+            old_bytes = self.source_bytes[start:end]
+            print(f"_replace_range: range {byte_range}: {old_bytes!r} -> {new_bytes!r}")
         before = self.source_bytes[:start]
         after = self.source_bytes[end:]
-        insert = new_content_utf8.encode("utf-8")
+        insert = new_bytes
         self.source_bytes = before + insert + after
-        self.source = self.source_bytes.decode("utf-8", errors="replace")
         # Reparse and clear cache
         self.tree = self.parser.parse(self.source_bytes)
         self._cached_index = None
@@ -650,23 +682,38 @@ class HocrParser:
 
 # ------------------------ helpers ------------------------
 
-def _detect_lang(source: str) -> str:
+# xhtml example:
+r"""
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+    "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+"""
+
+def _detect_lang(source: bytes) -> str:
     head = source.lstrip()[:2048]
-    if head.startswith("<?xml"):
+    if head.startswith(b"<?xml"):
         return "xml"
     # Heuristic: XHTML often has xmlns with xhtml URI on <html> or top-level
-    if "http://www.w3.org/1999/xhtml" in head or "xmlns=" in head.split("\n", 1)[0]:
+    if b"http://www.w3.org/1999/xhtml" in head or b"xmlns=" in head:
         return "xml"
     return "html"
 
 
-def _strip_quote_range(start: int, end: int, raw: str) -> Tuple[int, int]:
+def _strip_quote_range(start: int, end: int, raw: bytes) -> Tuple[int, int]:
     """Given a node's byte [start,end) and its raw text, return the inner range
     without surrounding quotes if present."""
-    if len(raw) >= 2 and ((raw[0] == '"' and raw[-1] == '"') or (raw[0] == "'" and raw[-1] == "'")):
+    # note: type(b'"'[0]) == int
+    if (
+        len(raw) >= 2 and
+        (
+            (raw[0] == b'"'[0] and raw[-1] == b'"'[0]) or
+            (raw[0] == b"'"[0] and raw[-1] == b"'"[0])
+        )
+    ):
         return start + 1, end - 1
     return start, end
 
 
-def _class_has(class_attr: str, token: str) -> bool:
+def _class_has(class_attr: bytes, token: bytes) -> bool:
     return token in class_attr.split()

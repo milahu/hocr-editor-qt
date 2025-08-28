@@ -8,6 +8,11 @@ import signal
 import random
 import string
 import traceback
+from typing import (
+    Optional,
+    Tuple,
+    Any,
+)
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QGraphicsView, QGraphicsScene,
     QGraphicsRectItem, QGraphicsTextItem, QGraphicsItem,
@@ -53,8 +58,8 @@ xwconf_re = re.compile(r"x_wconf (\d+)")
 
 
 # --- utilities for images / dark mode ---
-def _extract_image_from_title(title: str) -> str:
-    m = re.search(r'image\s+"([^"]+)"', title)
+def _extract_image_from_title(title: bytes) -> Optional[bytes]:
+    m = re.search(rb'image\s+"([^"]+)"', title)
     return m.group(1) if m else None
 
 def _is_dark_mode(view) -> bool:
@@ -257,8 +262,8 @@ class PageView(QGraphicsView):
     @print_exceptions
     def __init__(
             self,
-            scene,
-            add_new_word_cb,
+            scene: Any,
+            add_new_word_cb: Any,
         ):
         super().__init__(scene)
         self.setRenderHint(QPainter.Antialiasing)
@@ -363,7 +368,7 @@ class PageView(QGraphicsView):
 
 class HocrEditor(QMainWindow):
     @print_exceptions
-    def __init__(self, hocr_file):
+    def __init__(self, hocr_file: str):
         super().__init__()
         self.hocr_file = hocr_file  # remember original filename
         self.scene = QGraphicsScene()
@@ -382,11 +387,11 @@ class HocrEditor(QMainWindow):
 
         # load words into scene
         # set self.parser
-        self.words = []
+        self.words: list[Word] = []
         self.word_items: dict[str, list[WordItem]] = {}
         self.load_hocr(hocr_file)
 
-        self.changed_word_id = None
+        self.changed_word_id: Optional[bytes] = None
 
         # HOCR source editor dock
         self.source_editor = HocrSourceEditor(
@@ -466,10 +471,10 @@ class HocrEditor(QMainWindow):
     @print_exceptions
     def load_hocr(self, hocr_file):
         self.hocr_file = hocr_file
-        with open(hocr_file, "r", encoding="utf-8") as f:
-            source = f.read()
+        with open(hocr_file, "rb") as f:
+            source_bytes = f.read()
 
-        self.parser = HocrParser(source)
+        self.parser = HocrParser(source_bytes)
         self.words = self.parser.find_words()
         # print("self.words", self.words)
 
@@ -485,6 +490,7 @@ class HocrEditor(QMainWindow):
         for page in self.parser.find_pages():
             # print("page", page)
             img_path = _extract_image_from_title(page.title_value)
+            img_path = img_path.decode(self.parser.source_encoding, errors="replace")
             img_path = os.path.join(
                 os.path.dirname(self.hocr_file),
                 img_path
@@ -628,8 +634,10 @@ class HocrEditor(QMainWindow):
         if self.source_editor.hasFocus():
             return
         # Convert byte offsets to character offsets
-        start_char = len(self.parser.source_bytes[:word_item.word.text_range[0]].decode("utf-8", errors="replace"))
-        end_char = start_char + len(word_item.word.text)
+        start_char = len(self.parser.source_bytes[:word_item.word.text_range[0]].decode(
+            self.parser.source_encoding, errors="replace"))
+        end_char = start_char + len(word_item.word.text.decode(
+            self.parser.source_encoding, errors="replace"))
 
         # Set selection
         cursor = self.source_editor.textCursor()
@@ -641,7 +649,16 @@ class HocrEditor(QMainWindow):
         self.source_editor.centerCursor()
 
     @print_exceptions
-    def on_word_changed(self, word_id: str, new_text: str = None, bbox=None, span_start: int = None):
+    def on_word_changed(
+            self,
+            word_id: bytes,
+            new_text: Optional[bytes] = None,
+            bbox: Optional[Tuple[int, int, int, int]] = None,
+            span_start: Optional[int] = None,
+        ):
+        assert isinstance(word_id, bytes)
+        if new_text != None:
+            assert isinstance(new_text, bytes)
         """Called when WordItem text changes.
 
         If the caller provides span_start (byte offset of the span's start tag),
@@ -649,7 +666,7 @@ class HocrEditor(QMainWindow):
         to the old parser.update(word_id, ...).
         """
         if debug_word_id and debug_word_id == word_id:
-            print(f"word {word_id}: on_word_changed: new_text={new_text!r}, bbox={bbox}, span_start={span_start}")
+            print(f"word {word_id!r}: on_word_changed: new_text={new_text!r}, bbox={bbox}, span_start={span_start}")
         # Prefer span-based update (disambiguates duplicate ids)
         if span_start is not None:
             ok = self.parser.update_by_span(span_start, text=new_text, bbox=bbox)
@@ -662,7 +679,7 @@ class HocrEditor(QMainWindow):
         # TODO incremental update
         # no. RuntimeError: Internal C++ object (WordItem) already deleted.
         # self.changed_word_id = word_id
-        self.changed_word_id = str(word_id) # force-copy value
+        self.changed_word_id = bytes(word_id) # force-copy value
         self.refresh_page_view()
 
     @print_exceptions
@@ -692,10 +709,10 @@ class HocrEditor(QMainWindow):
     def add_new_word_from_page_view(self, rect: QRectF):
         x0, y0 = int(rect.x()), int(rect.y())
         x1, y1 = int(rect.x() + rect.width()), int(rect.y() + rect.height())
-        new_id = "word_" + "".join(random.choices(string.ascii_letters + string.digits, k=8))
+        new_id = b"word_" + "".join(random.choices(string.ascii_letters + string.digits, k=8)).encode("ascii")
         new_word = Word(
             id=new_id,
-            text="",
+            text=b"",
             bbox=(x0, y0, x1, y1),
             x_wconf=None,
             title_value=None,
@@ -712,7 +729,8 @@ class HocrEditor(QMainWindow):
         line_idx, word_idx = find_insert_line_and_index(new_word.bbox, lines)
 
         # Determine insertion line number in source
-        lines_in_source = self.source_editor.toPlainText().splitlines()
+        # TODO avoid splitlines. use word byte positions
+        lines_in_source = self.source_editor.toBytes().splitlines()
         word_to_line = {}
         # TODO better
         for idx, line in enumerate(lines_in_source):
@@ -733,18 +751,24 @@ class HocrEditor(QMainWindow):
         else:
             insert_line = 0
 
-        new_span_line = f"      <span class='ocrx_word' id='{new_id}' title='bbox {x0} {y0} {x1} {y1}'></span>"
+        new_span_line = (
+            b"      <span class='ocrx_word' id='" + new_id +
+            b"' title='bbox " + str(x0).encode("ascii") + b" " + str(y0).encode("ascii") + b" " +
+            str(x1).encode("ascii") + b" " + str(y1).encode("ascii") + b"'></span>"
+        )
 
         lines_in_source.insert(insert_line, new_span_line)
-        new_source = "\n".join(lines_in_source)
-        self.source_editor.setPlainText(new_source)
-        self.parser.set_source(new_source)
+        new_source = b"\n".join(lines_in_source)
+        self.source_editor.setBytes(new_source)
+        self.parser.set_source_bytes(new_source)
         self.refresh_page_view()
 
         # Place cursor inside new span
         cursor = self.source_editor.textCursor()
-        # TODO better. use lines_in_source and insert_line
-        pos = new_source.find(new_span_line) + len(new_span_line) - len("</span>")
+        pos = len((
+            b"\n".join(lines_in_source[:insert_line]) +
+            new_span_line[:-len("</span>")+1]
+        ).decode(self.parser.source_encoding, errors="replace"))
         cursor.setPosition(pos)
         self.source_editor.setTextCursor(cursor)
         self.source_editor.setFocus()
@@ -756,11 +780,12 @@ class HocrEditor(QMainWindow):
             self.save_hocr_as()
             return
         try:
-            with open(self.hocr_file, "w", encoding="utf-8") as f:
-                f.write(self.parser.source)
+            with open(self.hocr_file, "wb") as f:
+                f.write(self.parser.source_bytes)
             # QMessageBox.information(self, "Saved", f"File saved to {self.hocr_file}")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to save file:\n{e}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", f"Failed to save file:\n{exc}")
+            raise
 
     @print_exceptions
     def save_hocr_as(self):
