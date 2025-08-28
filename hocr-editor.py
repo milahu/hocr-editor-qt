@@ -69,6 +69,7 @@ def _invert_pixmap(pixmap: QPixmap) -> QPixmap:
 
 
 class WordItem(ResizableRectItem):
+    @print_exceptions
     def __init__(self, word, word_selected_cb, word_changed_cb):
         x0, y0, x1, y1 = word.bbox
         w = x1 - x0
@@ -95,6 +96,7 @@ class WordItem(ResizableRectItem):
             # disable text overlay
             self.text_item = None
 
+    @print_exceptions
     def __str__(self):
         pos = self.scenePos()
         return (
@@ -252,6 +254,7 @@ class WordItem(ResizableRectItem):
 
 
 class PageView(QGraphicsView):
+    @print_exceptions
     def __init__(
             self,
             scene,
@@ -359,6 +362,7 @@ class PageView(QGraphicsView):
 
 
 class HocrEditor(QMainWindow):
+    @print_exceptions
     def __init__(self, hocr_file):
         super().__init__()
         self.hocr_file = hocr_file  # remember original filename
@@ -425,6 +429,7 @@ class HocrEditor(QMainWindow):
         for delay in [1, 10, 20, 50, 100, 200, 500]:
             QTimer.singleShot(delay, self.view.fit_width)  # fit width after layout
 
+    @print_exceptions
     def _create_menubar(self):
         menubar = self.menuBar()
         file_menu = menubar.addMenu("File")

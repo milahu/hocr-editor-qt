@@ -127,6 +127,7 @@ def _parse_title(title_value: str):
     return bbox, xw
 
 
+@print_exceptions
 def _format_title(
         existing: str,
         **kwargs
@@ -176,6 +177,7 @@ class Word:
 
 
 class HocrParser:
+    @print_exceptions
     def __init__(self, source: str):
         self.set_source(source)
 
