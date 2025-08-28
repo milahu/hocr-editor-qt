@@ -7,6 +7,7 @@ import argparse
 import signal
 import random
 import string
+import traceback
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QGraphicsView, QGraphicsScene,
     QGraphicsRectItem, QGraphicsTextItem, QGraphicsItem,
@@ -42,6 +43,7 @@ from PySide6.QtCore import (
 )
 
 from hocr_parser import HocrParser, Word
+from hocr_parser import print_exceptions
 from hocr_source_editor import HocrSourceEditor
 from resizable_rect_item import ResizableRectItem
 
@@ -92,14 +94,17 @@ class WordItem(ResizableRectItem):
             # disable text overlay
             self.text_item = None
 
+    @print_exceptions
     def move_done_cb(self, pos1, pos2):
         self._update_text_position()
         self.update_word_bbox()
 
+    @print_exceptions
     def resize_done_cb(self, rect1, rect2):
         self._update_text_position()
         self.update_word_bbox()
 
+    @print_exceptions
     def mouseReleaseEvent(self, event):
         try:
             super().mouseReleaseEvent(event)
@@ -112,6 +117,7 @@ class WordItem(ResizableRectItem):
             return
         self.word_selected_cb(self)
 
+    @print_exceptions
     def set_theme_colors(self):
         """Call this after item is in a scene."""
         if self.scene() and self.scene().views():
@@ -134,6 +140,7 @@ class WordItem(ResizableRectItem):
             # Optional: fill color with some transparency
             # self.setBrush(QBrush(fg_color, Qt.Dense4Pattern))  # or light alpha
 
+    @print_exceptions
     def set_text_color(self, color):
         """Apply color to text and bbox outline."""
         if self.text_item:
@@ -141,6 +148,7 @@ class WordItem(ResizableRectItem):
         self.setPen(QPen(color, 1))
 
     # Override QGraphicsItem hook when added to scene
+    @print_exceptions
     def itemChange(self, change, value):
         # print("itemChange", change, value)
         # if change == QGraphicsItem.ItemSceneChange:
@@ -156,6 +164,7 @@ class WordItem(ResizableRectItem):
         font.setPointSizeF(max(10, self.rect().height() * 0.6))
         self.text_item.setFont(font)
 
+    @print_exceptions
     def update_word_bbox(self):
         top_left = self.mapToScene(self.rect().topLeft())
         bottom_right = self.mapToScene(self.rect().bottomRight())
@@ -173,6 +182,7 @@ class WordItem(ResizableRectItem):
         else:
             print(f"word {self.word.id}: update_word_bbox: no change")
 
+    @print_exceptions
     def mouseDoubleClickEvent(self, event):
         if self.editor is None:
             line_edit = QLineEdit(self.word.text)
@@ -187,6 +197,7 @@ class WordItem(ResizableRectItem):
             line_edit.editingFinished.connect(self.finish_editing)
 
     # ---------------- Helpers ----------------
+    @print_exceptions
     def commit_text(self, new_text):
         # print(f"commit_text: word.text {self.word.text!r} -> {new_text!r}")
         self.word.text = new_text
@@ -195,6 +206,7 @@ class WordItem(ResizableRectItem):
         self.word_changed_cb(self.word.id, new_text, bbox=self.word.bbox)
         self.word_selected_cb(self)
 
+    @print_exceptions
     def finish_editing(self):
         if self.editor:
             line_edit = self.editor.widget()
@@ -231,6 +243,7 @@ class PageView(QGraphicsView):
         self._new_word_start_pos: QPointF | None = None
         self._new_word_rect_item: QGraphicsRectItem | None = None
 
+    @print_exceptions
     def fit_width(self):
         """Scale so that scene width fits view width."""
         if not self.scene() or self.scene().width() == 0:
@@ -242,6 +255,7 @@ class PageView(QGraphicsView):
         self.scale(factor, factor)
         self._zoom = 0
 
+    @print_exceptions
     def wheelEvent(self, event):
         """Zoom with Ctrl+wheel"""
         modifiers = event.modifiers()
@@ -265,14 +279,17 @@ class PageView(QGraphicsView):
         else:
             super().wheelEvent(event)
 
+    @print_exceptions
     def zoom_in(self):
         self._zoom += 1
         self.scale(1.2, 1.2)
 
+    @print_exceptions
     def zoom_out(self):
         self._zoom -= 1
         self.scale(1/1.2, 1/1.2)
 
+    @print_exceptions
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.LeftButton:
             pos = self.mapToScene(event.pos()) # FIXME DeprecationWarning
@@ -291,6 +308,7 @@ class PageView(QGraphicsView):
         else:
             super().mouseDoubleClickEvent(event)
 
+    @print_exceptions
     def mouseMoveEvent(self, event):
         if self._creating_new_word and self._new_word_start_pos:
             pos = self.mapToScene(event.pos()) # FIXME DeprecationWarning
@@ -299,6 +317,7 @@ class PageView(QGraphicsView):
         else:
             super().mouseMoveEvent(event)
 
+    @print_exceptions
     def mouseReleaseEvent(self, event):
         if self._creating_new_word and self._new_word_rect_item:
             rect = self._new_word_rect_item.rect()
@@ -403,6 +422,7 @@ class HocrEditor(QMainWindow):
         text_color_action.triggered.connect(self.pick_text_color)
         view_menu.addAction(text_color_action)
 
+    @print_exceptions
     def pick_text_color(self):
         color = QColorDialog.getColor(self.overlay_color or Qt.green, self, "Set Overlay Color")
         if color.isValid():
@@ -412,6 +432,7 @@ class HocrEditor(QMainWindow):
                 if isinstance(item, WordItem):
                     item.set_text_color(color)
 
+    @print_exceptions
     def load_hocr(self, hocr_file):
         self.hocr_file = hocr_file
         with open(hocr_file, "r", encoding="utf-8") as f:
@@ -425,6 +446,7 @@ class HocrEditor(QMainWindow):
 
         # QTimer.singleShot(0, self.view.fit_width)  # fit width after layout
 
+    @print_exceptions
     def load_words(self):
         """Populate the scene with WordItems from parser"""
 
@@ -453,6 +475,7 @@ class HocrEditor(QMainWindow):
             self.scene.addItem(item)
             self.word_items[word.id] = item
 
+    @print_exceptions
     def refresh_page_view(self):
         """Update words from parser"""
         new_words = {w.id: w for w in self.parser.find_words()}
@@ -492,12 +515,14 @@ class HocrEditor(QMainWindow):
                 self.on_word_selected(changed_word_item)
         QTimer.singleShot(0, select_changed_word)
 
+    @print_exceptions
     def find_word_item_by_word_id(self, word_id: str):
         for word_item in self.scene.items():
             if not isinstance(word_item, WordItem): continue
             if word_item.word.id == word_id:
                 return word_item
 
+    @print_exceptions
     def on_word_selected(self, word_item: WordItem):
         if self.source_editor.hasFocus():
             return
@@ -514,6 +539,7 @@ class HocrEditor(QMainWindow):
         # center the cursor
         self.source_editor.centerCursor()
 
+    @print_exceptions
     def on_word_changed(self, word_id: str, new_text: str = None, bbox=None):
         """Called when WordItem text changes"""
         # print("on_word_changed", word_id, new_text, bbox)
@@ -526,6 +552,7 @@ class HocrEditor(QMainWindow):
         self.changed_word_id = str(word_id) # force-copy value
         self.refresh_page_view()
 
+    @print_exceptions
     def on_code_cursor_changed(self, pos: int):
         # 1. Find which word covers this pos
         word = self.parser.find_word_at_offset(pos)
@@ -541,6 +568,7 @@ class HocrEditor(QMainWindow):
         self.page_view.centerOn(item)
         item.setSelected(True)
 
+    @print_exceptions
     def add_new_word_from_page_view(self, rect: QRectF):
         x0, y0 = int(rect.x()), int(rect.y())
         x1, y1 = int(rect.x() + rect.width()), int(rect.y() + rect.height())
@@ -600,6 +628,7 @@ class HocrEditor(QMainWindow):
         self.source_editor.setTextCursor(cursor)
         self.source_editor.setFocus()
 
+    @print_exceptions
     def save_hocr(self):
         """Save to original file."""
         if not self.hocr_file:
@@ -612,6 +641,7 @@ class HocrEditor(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save file:\n{e}")
 
+    @print_exceptions
     def save_hocr_as(self):
         """Save to new file via dialog."""
         filename, _ = QFileDialog.getSaveFileName(self, "Save HOCR File", "", "HOCR Files (*.hocr *.html *.xhtml);;All Files (*)")

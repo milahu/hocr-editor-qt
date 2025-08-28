@@ -32,6 +32,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Tuple
 import re
+import traceback
 
 from tree_sitter import Parser
 from tree_sitter_language_pack import get_language
@@ -44,6 +45,44 @@ XML_LANG = get_language("xml")
 
 _TITLE_BBOX_RE = re.compile(r"bbox\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)", re.IGNORECASE)
 _TITLE_XWCONF_RE = re.compile(r"x_wconf\s+(-?\d+)", re.IGNORECASE)
+
+
+# dont let qt swallow python exceptions
+def print_exceptions(func):
+    def print_exceptions_wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as exc:
+            def filter_frame(frame):
+                remove_frame_suffix_list = [
+                    "Traceback (most recent call last):\n",
+                    # remove wrapper frames
+                    ", in print_exceptions_wrapper\n    return func(*args, **kwargs)\n",
+                    ", in print_exceptions_wrapper\n    stack = traceback.format_stack()\n",
+                    # remove main frames
+                    ", in main\n    sys.exit(app.exec())\n",
+                    ", in <module>\n    main()\n",
+                ]
+                for frame_suffix in remove_frame_suffix_list:
+                    if frame.endswith(frame_suffix):
+                        return False
+                return True
+            print("Traceback (most recent call last):")
+            # Incoming Python stack (where this call came from)
+            stack = traceback.format_stack()
+            if 0:
+                # debug: print all frames
+                for frame in stack:
+                    print("frame", repr(frame))
+            stack = filter(filter_frame, stack)
+            print("".join(stack), end="")
+            # Exception traceback with locals
+            capture_locals = False
+            # capture_locals = True # also print function parameters. noisy but maybe helpful
+            stack = traceback.TracebackException.from_exception(exc, capture_locals=capture_locals).format()
+            stack = filter(filter_frame, stack)
+            print("".join(stack), end="")
+    return print_exceptions_wrapper
 
 
 def _parse_title(title_value: str):
@@ -137,9 +176,11 @@ class HocrParser:
     def is_xml(self) -> bool:
         return self._lang == "xml"
 
+    @print_exceptions
     def find_words(self) -> List[Word]:
         return list(self._index_words().values())
 
+    @print_exceptions
     def find_pages(self) -> List[Word]:
         pages = []
         stack = [self.tree.root_node]
@@ -216,6 +257,7 @@ class HocrParser:
     def get_word(self, word_id: str) -> Optional[Word]:
         return self._index_words().get(word_id)
 
+    @print_exceptions
     def update(self,
                word_id: str,
                *,
@@ -269,6 +311,7 @@ class HocrParser:
 
     # ------------------------ core ------------------------
 
+    @print_exceptions
     def set_source(self, source: str):
         self.source = source
         self.source_bytes = source.encode("utf-8")
