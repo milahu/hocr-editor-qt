@@ -226,11 +226,23 @@ class HocrSourceEditor(QPlainTextEdit):
 
         # Typing characters
         if text and not (event.modifiers() & (Qt.ControlModifier | Qt.MetaModifier)):
-            insert_pos = cur.position()
+            cur = self.textCursor()
+            doc_text = self.toPlainText()
             ops: list[tuple] = []
-            ops.extend(self._record_replace_selection(cur, doc_text))
+
+            # if selection exists, delete and reset cursor
+            if cur.hasSelection():
+                start, end = sorted([cur.selectionStart(), cur.selectionEnd()])
+                removed_text = doc_text[start:end]
+                self._apply_remove(start, end - start)
+                ops.append((REMOVE, start, removed_text))
+                cur.setPosition(start) # reset cursor to start of selection
+                self.setTextCursor(cur)
+
+            insert_pos = cur.position()
             self._apply_insert(insert_pos, text)
             ops.append((INSERT, insert_pos, text))
+
             self._push_chunk(ops, mode=CHUNK_TYPING)
             self._sync_parser_and_page()
             return
