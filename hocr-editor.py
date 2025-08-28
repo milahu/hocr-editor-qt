@@ -5,6 +5,8 @@ import sys
 import re
 import argparse
 import signal
+import random
+import string
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QGraphicsView, QGraphicsScene,
     QGraphicsRectItem, QGraphicsTextItem, QGraphicsItem,
@@ -212,12 +214,22 @@ class WordItem(ResizableRectItem):
 
 
 class PageView(QGraphicsView):
-    def __init__(self, scene):
+    def __init__(
+            self,
+            scene,
+            add_new_word_cb,
+        ):
         super().__init__(scene)
         self.setRenderHint(QPainter.Antialiasing)
         self.setDragMode(QGraphicsView.ScrollHandDrag)
         self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
         self._zoom = 0
+
+        # For new word creation
+        self.add_new_word_cb = add_new_word_cb
+        self._creating_new_word = False
+        self._new_word_start_pos: QPointF | None = None
+        self._new_word_rect_item: QGraphicsRectItem | None = None
 
     def fit_width(self):
         """Scale so that scene width fits view width."""
@@ -261,6 +273,45 @@ class PageView(QGraphicsView):
         self._zoom -= 1
         self.scale(1/1.2, 1/1.2)
 
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            pos = self.mapToScene(event.pos()) # FIXME DeprecationWarning
+            # pos = event.scenePos() # AttributeError
+            self._creating_new_word = True
+            self._new_word_start_pos = pos
+            # initial rectangle (default size)
+            default_w, default_h = 50, 20
+            self._new_word_rect_item = QGraphicsRectItem(
+                QRectF(pos.x(), pos.y(), default_w, default_h)
+            )
+            pen = QPen(Qt.blue, 1, Qt.DashLine)
+            self._new_word_rect_item.setPen(pen)
+            self.scene().addItem(self._new_word_rect_item)
+            event.accept()
+        else:
+            super().mouseDoubleClickEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._creating_new_word and self._new_word_start_pos:
+            pos = self.mapToScene(event.pos()) # FIXME DeprecationWarning
+            rect = QRectF(self._new_word_start_pos, pos).normalized()
+            self._new_word_rect_item.setRect(rect)
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._creating_new_word and self._new_word_rect_item:
+            rect = self._new_word_rect_item.rect()
+            self._creating_new_word = False
+            self.scene().removeItem(self._new_word_rect_item)
+            self._new_word_rect_item = None
+
+            # Notify editor about new word
+            self.add_new_word_cb(rect)
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+
 
 class HocrEditor(QMainWindow):
     def __init__(self, hocr_file):
@@ -268,7 +319,10 @@ class HocrEditor(QMainWindow):
         self.hocr_file = hocr_file  # remember original filename
         self.scene = QGraphicsScene()
         # TODO rename to self.page_view
-        self.view = PageView(self.scene)
+        self.view = PageView(
+            self.scene,
+            add_new_word_cb=self.add_new_word_from_page_view,
+        )
         self.page_view = self.view
 
         self.setWindowTitle("HOCR Editor")
@@ -487,6 +541,65 @@ class HocrEditor(QMainWindow):
         self.page_view.centerOn(item)
         item.setSelected(True)
 
+    def add_new_word_from_page_view(self, rect: QRectF):
+        x0, y0 = int(rect.x()), int(rect.y())
+        x1, y1 = int(rect.x() + rect.width()), int(rect.y() + rect.height())
+        new_id = "word_" + "".join(random.choices(string.ascii_letters + string.digits, k=8))
+        new_word = Word(
+            id=new_id,
+            text="",
+            bbox=(x0, y0, x1, y1),
+            x_wconf=None,
+            title_value=None,
+            text_range=(0, 0),
+            title_value_range=(0, 0),
+            id_value_range=(0, 0),
+            element_range=(0, 0),
+            span_range=(0, 0),
+        )
+        # words = self.parser.find_words()
+        words = self.words
+        lines = group_words_into_lines(words, y_threshold=50)
+        line_idx, word_idx = find_insert_line_and_index(new_word.bbox, lines)
+
+        # Determine insertion line number in source
+        lines_in_source = self.source_editor.toPlainText().splitlines()
+        word_to_line = {}
+        # TODO better
+        for idx, line in enumerate(lines_in_source):
+            for w in words:
+                if w.id in line:
+                    word_to_line[w.id] = idx
+
+        # TODO better. the new word should be inserted between old words in the same line
+        if lines:
+            line_words = lines[line_idx]
+            if word_idx == 0:
+                # Insert before first word in line
+                insert_line = word_to_line.get(line_words[0].id, len(lines_in_source))
+            else:
+                # Insert after previous word
+                insert_line = word_to_line.get(line_words[word_idx - 1].id, len(lines_in_source))
+                insert_line += 1
+        else:
+            insert_line = 0
+
+        new_span_line = f"      <span class='ocrx_word' id='{new_id}' title='bbox {x0} {y0} {x1} {y1}'></span>"
+
+        lines_in_source.insert(insert_line, new_span_line)
+        new_source = "\n".join(lines_in_source)
+        self.source_editor.setPlainText(new_source)
+        self.parser.set_source(new_source)
+        self.refresh_page_view()
+
+        # Place cursor inside new span
+        cursor = self.source_editor.textCursor()
+        # TODO better. use lines_in_source and insert_line
+        pos = new_source.find(new_span_line) + len(new_span_line) - len("</span>")
+        cursor.setPosition(pos)
+        self.source_editor.setTextCursor(cursor)
+        self.source_editor.setFocus()
+
     def save_hocr(self):
         """Save to original file."""
         if not self.hocr_file:
@@ -505,6 +618,65 @@ class HocrEditor(QMainWindow):
         if filename:
             self.hocr_file = filename
             self.save_hocr()
+
+
+def group_words_into_lines(words, y_threshold=10):
+    """
+    Group words into lines based on vertical proximity.
+    y_threshold: maximum vertical distance to consider words on same line.
+    Returns list of lines, each line is a list of Word objects sorted by x.
+    """
+    sorted_words = sorted(words, key=lambda w: w.bbox[1])  # sort by y
+    lines = []
+    for w in sorted_words:
+        added = False
+        for line in lines:
+            # Compare with the first word of the line
+            if abs(w.bbox[1] - line[0].bbox[1]) <= y_threshold:
+                line.append(w)
+                added = True
+                break
+        if not added:
+            lines.append([w])
+    # Sort each line by x
+    for line in lines:
+        line.sort(key=lambda w: w.bbox[0])
+    return lines
+
+
+def find_insert_line_and_index(new_bbox, lines, line_y_tolerance=50):
+    """
+    Find the line and position inside that line where the new word should go.
+    Returns (line_index, word_index_inside_line)
+    """
+    debug = False
+    # debug = True
+    y0, x0 = new_bbox[1], new_bbox[0]
+    debug and print("new_bbox y0", y0)
+
+    # Find nearest line by vertical position
+    line_index = len(lines)
+    for i, line in enumerate(lines):
+        line_y = sum(w.bbox[1] for w in line) / len(line)  # avg y
+        debug and print(f"line {i}: line_y", line_y, "text", repr(" ".join(w.text for w in line)))
+        if y0 < (line_y + line_y_tolerance):
+            line_index = i
+            break
+    if line_index == len(lines):
+        line_index = len(lines) - 1 if lines else 0
+
+    debug and print("new_bbox x0", x0)
+
+    # Within the line, find nearest word by x
+    line = lines[line_index]
+    word_index = 0
+    for i, w in enumerate(line):
+        debug and print(f"word {i}: word_x", w.bbox[0], "text", repr(w.text))
+        if x0 < w.bbox[0]:
+            word_index = i
+            break
+        word_index = i + 1
+    return line_index, word_index
 
 
 def main():
