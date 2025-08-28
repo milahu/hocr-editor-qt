@@ -44,6 +44,7 @@ from PySide6.QtCore import (
 
 from hocr_parser import HocrParser, Word
 from hocr_parser import print_exceptions
+from hocr_parser import debug, debug_word_id
 from hocr_source_editor import HocrSourceEditor
 from resizable_rect_item import ResizableRectItem
 
@@ -189,11 +190,13 @@ class WordItem(ResizableRectItem):
         )
         old_bbox = self.word.bbox
         if old_bbox != new_bbox:
-            print(f"word {self.word.id}: update_word_bbox: {old_bbox} -> {new_bbox}")
+            if debug_word_id and debug_word_id == self.word.id:
+                print(f"word {self.word.id}: update_word_bbox: {old_bbox} -> {new_bbox}")
             self.word.bbox = new_bbox
             self.word_changed_cb(self.word.id, bbox=new_bbox)
         else:
-            print(f"word {self.word.id}: update_word_bbox: no change")
+            if debug_word_id and debug_word_id == self.word.id:
+                print(f"word {self.word.id}: update_word_bbox: no change")
 
     @print_exceptions
     def mouseDoubleClickEvent(self, event):
@@ -216,6 +219,8 @@ class WordItem(ResizableRectItem):
         self.word.text = new_text
         if self.text_item:
             self.text_item.setText(new_text)
+        if debug_word_id and debug_word_id == self.word.id:
+            print(f"word {self.word.id}: commit_text: new_text={new_text!r}")
         self.word_changed_cb(self.word.id, new_text, bbox=self.word.bbox)
         self.word_selected_cb(self)
 
@@ -493,40 +498,79 @@ class HocrEditor(QMainWindow):
     @print_exceptions
     def refresh_page_view(self):
         """Update words from parser"""
+        if 0:
+            # slow non-incremental update
+            self.scene.clear()
+            self.load_words()
+            return
         new_words = dict()
         for word in self.parser.find_words():
             if not word.id in new_words:
                 new_words[word.id] = list()
             new_words[word.id].append(word)
         # remove words
+        num_words_removed = 0
         for wid in list(self.word_items.keys()):
             if wid not in new_words:
                 for item in self.word_items.pop(wid):
+                    if debug_word_id and debug_word_id == wid:
+                        print(f"word {wid}: refresh_page_view: removing item {item}")
                     self.scene.removeItem(item)
+                    num_words_removed += 1
         # update or add words
+        num_words_updated = 0
+        num_words_added = 0
         for wid, words in new_words.items():
             add_words = []
             if wid in self.word_items:
                 items = self.word_items[wid]
                 if len(words) == 1 and len(items) == 1:
                     # simple case: no collisions in word id
+                    # print("refresh_page_view: simple case: no collisions in word id")
                     # update word
                     word = words[0]
                     item = items[0]
+                    if debug_word_id and debug_word_id == wid:
+                        print(f"word {wid}: refresh_page_view: updating item {item}")
                     # update text and bbox
                     if item.word.text != word.text:
+                        # FIXME this is rarely (never?) reached
+                        # because item.word.text was already updated somewhere else
                         if item.text_item:
+                            if debug_word_id and debug_word_id == wid:
+                                print(f"word {wid}: refresh_page_view: updating item text: {item.text_item.text()!r} -> {word.text!r}")
                             item.text_item.setText(word.text)
+                        else:
+                            if debug_word_id and debug_word_id == wid:
+                                print(f"word {wid}: refresh_page_view: not updating item text: no item.text_item")
+                    else:
+                        if debug_word_id and debug_word_id == wid:
+                            print(f"word {wid}: refresh_page_view: not updating item text: no change: {word.text!r}")
                     if item.word.bbox != word.bbox:
+                        # FIXME this is rarely (never?) reached
+                        # because item.word.bbox was already updated somewhere else
+                        if debug_word_id and debug_word_id == wid:
+                            print(f"word {wid}: refresh_page_view: updating item bbox: {item.word.bbox!r} -> {word.bbox!r}")
                         x0, y0, x1, y1 = word.bbox
                         item.setPos(x0, y0)
                         item.setRect(0, 0, x1 - x0, y1 - y0)
                         item._update_text_position()
+                    else:
+                        if debug_word_id and debug_word_id == wid:
+                            print(f"word {wid}: refresh_page_view: not updating item bbox: no change: {word.bbox}")
                     item.word = word  # rebind
+                    num_words_updated += 1
                 else:
                     # complex case: collisions in word id
                     # remove and re-create all items with this word id
+                    print(f"refresh_page_view: FIXME collision in word id {wid!r}")
+                    for word in words:
+                        print(f"  word {word}")
                     for item in items:
+                        print(f"  item {item}")
+                    for item in items:
+                        if debug_word_id and debug_word_id == wid:
+                            print(f"word {wid}: refresh_page_view: removing item {item}")
                         self.scene.removeItem(item)
                     self.word_items[wid] = list()
                     # add words
@@ -542,10 +586,15 @@ class HocrEditor(QMainWindow):
                         word_changed_cb=self.on_word_changed,
                     )
                     item.set_text_color(self.overlay_color)
+                    if debug_word_id and debug_word_id == wid:
+                        print(f"word {wid}: refresh_page_view: adding item {item}")
                     self.scene.addItem(item)
                     if not wid in self.word_items:
                         self.word_items[wid] = list()
                     self.word_items[wid].append(item)
+                    num_words_added += 1
+        if debug:
+            print(f"refresh_page_view: removed {num_words_removed}, updated {num_words_updated}, added {num_words_added} words")
         # select changed word in code view
         @print_exceptions
         def select_changed_word():
@@ -604,9 +653,9 @@ class HocrEditor(QMainWindow):
             return
 
         if len(items) > 1:
-            print("FIXME collision in word id:")
+            print(f"on_code_cursor_changed: FIXME collision in word id {word.id!r}")
             for item in items:
-                print(f"  item {item}") # FIXME format
+                print(f"  item {item}")
 
         item = items[0]
 
@@ -632,6 +681,7 @@ class HocrEditor(QMainWindow):
             span_range=(0, 0),
         )
         # words = self.parser.find_words()
+        # self.words = self.parser.find_words() # force update
         words = self.words
         lines = group_words_into_lines(words, y_threshold=50)
         line_idx, word_idx = find_insert_line_and_index(new_word.bbox, lines)

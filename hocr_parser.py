@@ -37,6 +37,12 @@ import traceback
 from tree_sitter import Parser
 from tree_sitter_language_pack import get_language
 
+debug = False
+# debug = True
+
+debug_word_id = None
+# debug_word_id = "word_1_15"
+
 HTML_LANG = get_language("html")
 XML_LANG = get_language("xml")
 
@@ -147,7 +153,10 @@ def _format_title(
         if isinstance(val, (list, tuple)):
             val = " ".join(map(str, val))
         title_dict[key] = str(val)
-    return "; ".join([f"{key} {val}" for key, val in title_dict.items()])
+    new_title = "; ".join([f"{key} {val}" for key, val in title_dict.items()])
+    if debug:
+        print(f"_format_title: {existing!r} -> {new_title!r}")
+    return new_title
 
 
 @dataclass
@@ -280,9 +289,12 @@ class HocrParser:
 
         # 1) text
         if text is not None and node.text_range:
+            if debug_word_id and debug_word_id == word_id:
+                old_text = self.source[node.text_range[0]:node.text_range[1]]
+                print(f"word {word_id}: update: update text: {old_text!r} -> {text!r}")
             self._replace_range(node.text_range, text)
             changed = True
-            # reindex to refresh ranges
+            # reindex to refresh ranges after _replace_range
             idx = self._index_words()
             node = idx.get(word_id) or node
 
@@ -293,14 +305,17 @@ class HocrParser:
             if bbox is not None: kwargs["bbox"] = bbox
             if x_wconf is not None: kwargs["x_wconf"] = x_wconf
             new_title = _format_title(current_title, **kwargs)
-            if current_title == new_title:
-                print(f"word {word_id}: update title: no change")
-            else:
-                print(f"word {word_id}: update title: {current_title!r} -> {new_title!r}")
+            if debug_word_id and debug_word_id == word_id:
+                if current_title == new_title:
+                    print(f"word {word_id}: update: update title: no change in attribute @ {node.title_value_range}: title = {current_title!r}")
+                else:
+                    print(f"word {word_id}: update: update title: attribute @ {node.title_value_range}: title = {current_title!r}")
+                    print(f"word {word_id}: update: update title: {current_title!r} -> {new_title!r}")
             # FIXME preserve the old x_wconf value (and all other semicolon-separated values in title)
             if new_title != current_title:
                 self._replace_range(node.title_value_range, new_title)
                 changed = True
+                # reindex to refresh ranges after _replace_range
                 idx = self._index_words()
                 node = idx.get(word_id) or node
 
@@ -379,6 +394,10 @@ class HocrParser:
         # id & title
         id_val, id_range = attrs.get("id", ("", (0, 0)))
         title_val, title_range = attrs.get("title", ("", (0, 0)))
+
+        if debug_word_id and debug_word_id == id_val:
+            for n, (v, vr) in attrs.items():
+                print(f"_extract_word_html: attribute @ {vr}: {n} = {v!r}")
 
         # inner text: first 'text' child directly under element
         text_node = None
@@ -471,6 +490,10 @@ class HocrParser:
         id_val, id_range = attrs.get("id", ("", (0, 0)))
         title_val, title_range = attrs.get("title", ("", (0, 0)))
 
+        if debug_word_id and debug_word_id == id_val:
+            for n, (v, vr) in attrs.items():
+                print(f"_extract_word_xml: attribute @ {vr}: {n} = {v!r}")
+
         # content text
         text = ""
         text_range: Tuple[int, int] = (element.start_byte, element.start_byte)
@@ -540,6 +563,9 @@ class HocrParser:
     @print_exceptions
     def _replace_range(self, byte_range: Tuple[int, int], new_content_utf8: str):
         start, end = byte_range
+        if debug:
+            range_text_before = self.source_bytes[start:end]
+            print(f"_replace_range: range {byte_range}: {range_text_before!r} -> {new_content_utf8!r}")
         before = self.source_bytes[:start]
         after = self.source_bytes[end:]
         insert = new_content_utf8.encode("utf-8")
