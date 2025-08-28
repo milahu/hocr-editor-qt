@@ -353,7 +353,7 @@ class HocrEditor(QMainWindow):
         # load words into scene
         # set self.parser
         self.words = []
-        self.word_items: dict[str, WordItem] = {}
+        self.word_items: dict[str, list[WordItem]] = {}
         self.load_hocr(hocr_file)
 
         self.changed_word_id = None
@@ -473,41 +473,66 @@ class HocrEditor(QMainWindow):
                 word_changed_cb=self.on_word_changed,
             )
             self.scene.addItem(item)
-            self.word_items[word.id] = item
+            if not word.id in self.word_items:
+                self.word_items[word.id] = list()
+            self.word_items[word.id].append(item)
 
     @print_exceptions
     def refresh_page_view(self):
         """Update words from parser"""
-        new_words = {w.id: w for w in self.parser.find_words()}
+        new_words = dict()
+        for word in self.parser.find_words():
+            if not word.id in new_words:
+                new_words[word.id] = list()
+            new_words[word.id].append(word)
         # remove words
         for wid in list(self.word_items.keys()):
             if wid not in new_words:
-                item = self.word_items.pop(wid)
-                self.scene.removeItem(item)
+                for item in self.word_items.pop(wid):
+                    self.scene.removeItem(item)
         # update or add words
-        for wid, word in new_words.items():
+        for wid, words in new_words.items():
+            add_words = []
             if wid in self.word_items:
-                item = self.word_items[wid]
-                # update text and bbox
-                if item.word.text != word.text:
-                    if item.text_item:
-                        item.text_item.setText(word.text)
-                if item.word.bbox != word.bbox:
-                    x0, y0, x1, y1 = word.bbox
-                    item.setPos(x0, y0)
-                    item.setRect(0, 0, x1 - x0, y1 - y0)
-                    item._update_text_position()
-                item.word = word  # rebind
+                items = self.word_items[wid]
+                if len(words) == 1 and len(items) == 1:
+                    # simple case: no collisions in word id
+                    # update word
+                    word = words[0]
+                    item = items[0]
+                    # update text and bbox
+                    if item.word.text != word.text:
+                        if item.text_item:
+                            item.text_item.setText(word.text)
+                    if item.word.bbox != word.bbox:
+                        x0, y0, x1, y1 = word.bbox
+                        item.setPos(x0, y0)
+                        item.setRect(0, 0, x1 - x0, y1 - y0)
+                        item._update_text_position()
+                    item.word = word  # rebind
+                else:
+                    # complex case: collisions in word id
+                    # remove and re-create all items with this word id
+                    for item in items:
+                        self.scene.removeItem(item)
+                    self.word_items[wid] = list()
+                    # add words
+                    add_words = words
             else:
-                # add new word
-                item = WordItem(
-                    word,
-                    word_selected_cb=self.on_word_selected,
-                    word_changed_cb=self.on_word_changed,
-                )
-                item.set_text_color(self.overlay_color)
-                self.scene.addItem(item)
-                self.word_items[wid] = item
+                add_words = words
+            if add_words:
+                # add words
+                for word in add_words:
+                    item = WordItem(
+                        word,
+                        word_selected_cb=self.on_word_selected,
+                        word_changed_cb=self.on_word_changed,
+                    )
+                    item.set_text_color(self.overlay_color)
+                    self.scene.addItem(item)
+                    if not wid in self.word_items:
+                        self.word_items[wid] = list()
+                    self.word_items[wid].append(item)
         # select changed word in code view
         def select_changed_word():
             changed_word_item = self.find_word_item_by_word_id(self.changed_word_id)
@@ -560,9 +585,16 @@ class HocrEditor(QMainWindow):
             return
 
         # 2. Get the corresponding WordItem
-        item = self.word_items.get(word.id)
-        if not item:
+        items = self.word_items.get(word.id)
+        if not items:
             return
+
+        if len(items) > 1:
+            print("FIXME collision in word id:")
+            for item in items:
+                print(f"  item {item}") # FIXME format
+
+        item = items[0]
 
         # 3. Center page view on that word
         self.page_view.centerOn(item)
