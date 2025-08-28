@@ -782,6 +782,8 @@ class HocrEditor(QMainWindow):
         try:
             with open(self.hocr_file, "wb") as f:
                 f.write(self.parser.source_bytes)
+                if not self.parser.source_bytes.endswith(b"\n"):
+                    f.write(b"\n")
             # QMessageBox.information(self, "Saved", f"File saved to {self.hocr_file}")
         except Exception as exc:
             QMessageBox.critical(self, "Error", f"Failed to save file:\n{exc}")
