@@ -702,6 +702,7 @@ def main():
             overlay_color = None
 
     editor = HocrEditor(args.hocr_file)
+
     if overlay_color:
         editor.overlay_text_color = overlay_color
         # apply immediately to all items
@@ -709,7 +710,8 @@ def main():
             if hasattr(item, "set_text_color"):
                 item.set_text_color(overlay_color)
 
-    # editor.show()
+    editor.show()
+
     sys.exit(app.exec())
 
 
