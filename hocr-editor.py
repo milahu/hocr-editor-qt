@@ -178,7 +178,7 @@ class WordItem(ResizableRectItem):
         if old_bbox != new_bbox:
             print(f"word {self.word.id}: update_word_bbox: {old_bbox} -> {new_bbox}")
             self.word.bbox = new_bbox
-            self.word_changed_cb(self.word.id, self.word.text, bbox=new_bbox)
+            self.word_changed_cb(self.word.id, bbox=new_bbox)
         else:
             print(f"word {self.word.id}: update_word_bbox: no change")
 
