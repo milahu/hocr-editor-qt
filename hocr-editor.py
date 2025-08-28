@@ -270,6 +270,7 @@ class HocrEditor(QMainWindow):
         # load words into scene
         # set self.parser
         self.words = []
+        self.word_items: dict[str, WordItem] = {}
         self.load_hocr(hocr_file)
 
         self.changed_word_id = None
@@ -385,12 +386,39 @@ class HocrEditor(QMainWindow):
                 word_changed_cb=self.on_word_changed,
             )
             self.scene.addItem(item)
+            self.word_items[word.id] = item
 
     def refresh_page_view(self):
-        """Clear scene and reload words from parser"""
-        self.scene.clear()
-        self.load_words()
-
+        """Update words from parser"""
+        new_words = {w.id: w for w in self.parser.find_words()}
+        # remove words
+        for wid in list(self.word_items.keys()):
+            if wid not in new_words:
+                item = self.word_items.pop(wid)
+                self.scene.removeItem(item)
+        # update or add words
+        for wid, word in new_words.items():
+            if wid in self.word_items:
+                item = self.word_items[wid]
+                # update text and bbox
+                if item.word.text != word.text:
+                    item.text_item.setText(word.text)
+                if item.word.bbox != word.bbox:
+                    x0, y0, x1, y1 = word.bbox
+                    item.setPos(x0, y0)
+                    item.setRect(0, 0, x1 - x0, y1 - y0)
+                    item._update_text_position()
+                item.word = word  # rebind
+            else:
+                # add new word
+                item = WordItem(
+                    word,
+                    word_selected_cb=self.on_word_selected,
+                    word_changed_cb=self.on_word_changed,
+                )
+                item.set_text_color(self.overlay_color)
+                self.scene.addItem(item)
+                self.word_items[wid] = item
         # select changed word in code view
         def select_changed_word():
             changed_word_item = self.find_word_item_by_word_id(self.changed_word_id)
