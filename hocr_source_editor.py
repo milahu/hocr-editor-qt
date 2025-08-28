@@ -31,12 +31,20 @@ class HocrSourceEditor(QPlainTextEdit):
     TYPING_TIMEOUT_MS = 500
     DELETE_TIMEOUT_MS = 500
 
-    def __init__(self, parser: HocrParser, update_page_cb, parent=None):
+    def __init__(
+            self,
+            parser: HocrParser,
+            update_page_cb,
+            cursor_sync_cb,
+            parent=None,
+        ):
         super().__init__(parent)
         self.parser = parser
         self.update_page_cb = update_page_cb  # callback to refresh page view
         self.setPlainText(parser.source)
         self.textChanged.connect(self.on_text_changed)
+        self.cursorPositionChanged.connect(self.on_cursor_position_changed)
+        self.cursor_sync_cb = cursor_sync_cb
         self._updating = False  # avoid recursive updates
         self.setUndoRedoEnabled(False)
 
@@ -284,6 +292,14 @@ class HocrSourceEditor(QPlainTextEdit):
             self.setPlainText(self.parser.source)
         finally:
             self._updating = False
+
+    def on_cursor_position_changed(self):
+        if not self.hasFocus():
+            return  # only sync when user is editing here
+
+        cur = self.textCursor()
+        pos = cur.position()
+        self.cursor_sync_cb(pos)
 
     # ---- zoom handlers ----
     def wheelEvent(self, event: QWheelEvent):

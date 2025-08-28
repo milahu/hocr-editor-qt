@@ -259,7 +259,9 @@ class HocrEditor(QMainWindow):
         super().__init__()
         self.hocr_file = hocr_file  # remember original filename
         self.scene = QGraphicsScene()
+        # TODO rename to self.page_view
         self.view = PageView(self.scene)
+        self.page_view = self.view
 
         self.setWindowTitle("HOCR Editor")
         self.setWindowIcon(QIcon(os.path.dirname(__file__) + "/Eo_circle_blue_letter-h.2.png"))
@@ -279,6 +281,7 @@ class HocrEditor(QMainWindow):
         self.source_editor = HocrSourceEditor(
             self.parser,
             update_page_cb=self.refresh_page_view,
+            cursor_sync_cb=self.on_code_cursor_changed,
             parent=self,
         )
 
@@ -459,6 +462,21 @@ class HocrEditor(QMainWindow):
         # self.changed_word_id = word_id
         self.changed_word_id = str(word_id) # force-copy value
         self.refresh_page_view()
+
+    def on_code_cursor_changed(self, pos: int):
+        # 1. Find which word covers this pos
+        word = self.parser.find_word_at_offset(pos)
+        if not word:
+            return
+
+        # 2. Get the corresponding WordItem
+        item = self.word_items.get(word.id)
+        if not item:
+            return
+
+        # 3. Center page view on that word
+        self.page_view.centerOn(item)
+        item.setSelected(True)
 
     def save_hocr(self):
         """Save to original file."""

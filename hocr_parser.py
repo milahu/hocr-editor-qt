@@ -114,6 +114,7 @@ class Word:
     title_value_range: Tuple[int, int]
     id_value_range: Tuple[int, int]
     element_range: Tuple[int, int]
+    span_range: Tuple[int, int]
 
 
 class HocrParser:
@@ -159,6 +160,7 @@ class HocrParser:
             title_val, title_range = attrs.get("title", ("", (0,0)))
             bbox,_ = _parse_title(title_val)
             if not bbox: bbox=(0,0,0,0)
+            # TODO dont use "class Word" here
             return Word(
                 id=attrs.get("id", ("", (0,0)))[0],
                 text="",
@@ -168,11 +170,14 @@ class HocrParser:
                 text_range=(0,0),
                 title_value_range=title_range,
                 id_value_range=attrs.get("id",(None,(0,0)))[1],
-                element_range=(element.start_byte, element.end_byte)
+                element_range=(element.start_byte, element.end_byte),
+                span_range=(0,0),
             )
         else:  # xml / xhtml
+            # TODO rename to start_tags
             stags = [c for c in element.children if c.type=="STag"]
             if not stags: return None
+            # TODO rename to start_tag
             st = stags[0]
             attrs = {}
             for c in st.children:
@@ -184,6 +189,7 @@ class HocrParser:
             title_val, title_range = attrs.get("title", ("", (0,0)))
             bbox,_ = _parse_title(title_val)
             if not bbox: bbox=(0,0,0,0)
+            # TODO dont use "class Word" here
             return Word(
                 id=attrs.get("id", ("", (0,0)))[0],
                 text="",
@@ -193,7 +199,8 @@ class HocrParser:
                 text_range=(0,0),
                 title_value_range=title_range,
                 id_value_range=attrs.get("id",(None,(0,0)))[1],
-                element_range=(element.start_byte, element.end_byte)
+                element_range=(element.start_byte, element.end_byte),
+                span_range=(0,0),
             )
 
     def get_word(self, word_id: str) -> Optional[Word]:
@@ -319,12 +326,12 @@ class HocrParser:
             if ch.type == "text":
                 text_node = ch
                 break
+        end_tag = element.children[-1]
         if text_node is not None:
             text = sb[text_node.start_byte:text_node.end_byte].decode()
             text_range = (text_node.start_byte, text_node.end_byte)
         else:
             # empty span: zero-length before end_tag
-            end_tag = element.children[-1]
             text = ""
             text_range = (end_tag.start_byte, end_tag.start_byte)
 
@@ -343,6 +350,7 @@ class HocrParser:
             title_value_range=title_range,
             id_value_range=id_range,
             element_range=(element.start_byte, element.end_byte),
+            span_range=(start_tag.start_byte, end_tag.end_byte),
         )
 
     def _read_html_attribute(self, attr_node, sb: bytes):
@@ -375,9 +383,11 @@ class HocrParser:
 
     def _extract_word_xml(self, element, sb: bytes) -> Optional[Word]:
         # element -> STag, content?, ETag | EmptyElemTag
+        # TODO rename to start_tags
         stags = [c for c in element.children if c.type == "STag"]
         if not stags:
             return None
+        # TODO rename to start_tag
         st = stags[0]
 
         tag_name = None
@@ -411,6 +421,11 @@ class HocrParser:
                     text_range = (sub.start_byte, sub.end_byte)
                     break
 
+        end_tag = element.children[-1]
+        if end_tag.type != "ETag":
+            print(f"FIXME not found end_tag (ETag) in element.children:\n  {'\n  '.join(map(repr, element.children))}")
+            return None
+
         bbox, xw = _parse_title(title_val)
         if bbox is None:
             print(f"failed to parse bbox from title {title_val!r}")
@@ -426,6 +441,7 @@ class HocrParser:
             title_value_range=title_range,
             id_value_range=id_range,
             element_range=(element.start_byte, element.end_byte),
+            span_range=(st.start_byte, end_tag.end_byte),
         )
 
     def _read_xml_attribute(self, attr_node, sb: bytes):
@@ -469,6 +485,11 @@ class HocrParser:
         self.tree = self.parser.parse(self.source_bytes)
         self._cached_index = None
 
+    def find_word_at_offset(self, pos: int) -> Optional[Word]:
+        for word in self.find_words():
+            if word.span_range[0] <= pos < word.span_range[1]:
+                return word
+        return None
 
 # ------------------------ helpers ------------------------
 
