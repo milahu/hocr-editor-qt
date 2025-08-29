@@ -479,6 +479,13 @@ class HocrEditor(QMainWindow):
         with open(hocr_file, "rb") as f:
             source_bytes = f.read()
 
+        # normalize line endings for QPlainTextEdit
+        # fix: wrong position mappings between page view and code view
+        # note: we dont restore the original line endings in save_hocr
+        # because git will normalize line endings anyway
+        # so different line endings dont show up in "git diff"
+        source_bytes = source_bytes.replace(b"\r\n", b"\n")
+
         self.parser = HocrParser(source_bytes)
         self.words = self.parser.find_words()
         # print("self.words", self.words)
