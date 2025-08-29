@@ -103,14 +103,19 @@ class WordItem(ResizableRectItem):
 
     @print_exceptions
     def __str__(self):
-        pos = self.scenePos()
+        try:
+            pos = self.scenePos()
+            pos = (pos.x(), pos.y())
+        except RuntimeError:
+            # Internal C++ object (WordItem) already deleted.
+            pos = "?"
         return (
             f"WordItem(" +
             f"span_range={self.word.span_range!r}" +
             f", id={self.word.id!r}" +
             f", text={self.word.text!r}" +
             f", bbox={self.word.bbox!r}" +
-            f", pos={(pos.x(), pos.y())!r}" +
+            f", pos={pos!r}" +
             f")"
         )
 
