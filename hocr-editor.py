@@ -660,6 +660,8 @@ class HocrEditor(QMainWindow):
         # center the cursor
         self.source_editor.centerCursor()
 
+        self.source_editor.setFocus()
+
     @print_exceptions
     def on_word_changed(
             self,
