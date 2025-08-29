@@ -3,11 +3,15 @@
 import os
 import sys
 import re
+import io
 import argparse
 import signal
 import random
 import string
 import traceback
+import shutil
+import subprocess
+import PIL.Image
 from typing import (
     Optional,
     Tuple,
@@ -267,10 +271,11 @@ class PageView(QGraphicsView):
     @print_exceptions
     def __init__(
             self,
-            scene: Any,
+            editor: "HocrEditor",
             add_new_word_cb: Any,
         ):
-        super().__init__(scene)
+        super().__init__(editor.scene)
+        self.editor = editor
         self.setRenderHint(QPainter.Antialiasing)
         self.setDragMode(QGraphicsView.ScrollHandDrag)
         self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
@@ -347,6 +352,7 @@ class PageView(QGraphicsView):
         else:
             super().mouseDoubleClickEvent(event)
 
+    # TODO remove
     @print_exceptions
     def mouseMoveEvent(self, event):
         if self._creating_new_word and self._new_word_start_pos:
@@ -364,11 +370,97 @@ class PageView(QGraphicsView):
             self.scene().removeItem(self._new_word_rect_item)
             self._new_word_rect_item = None
 
-            # Notify editor about new word
-            self.add_new_word_cb(rect)
+            # crop + OCR
+            cropped = self._crop_pixmap(rect)
+            hocr_bytes = None
+            if cropped:
+                try:
+                    hocr_bytes = self._ocr_image(cropped)
+                except subprocess.TimeoutExpired as exc:
+                    print(f"mouseReleaseEvent: _ocr_image failed: {exc}")
+            if hocr_bytes:
+                # TODO parse hocr, merge with self.parser.source_bytes
+                # similar to add_new_word_cb -> add_new_word_from_page_view
+                # print("mouseReleaseEvent: hocr_bytes:\n" + hocr_bytes.decode("utf8"))
+                parser = HocrParser(hocr_bytes)
+                parse_id = get_random_bytestring()
+                # rect is QRectF of user selection in scene/pixmap coordinates
+                x_offset, y_offset = rect.x(), rect.y()
+                scale_x = rect.width() / cropped.width()
+                scale_y = rect.height() / cropped.height()
+                for word in parser.find_words():
+                    # expand word.id to avoid collisions
+                    # assume that word.id has the pattern "word_[0-9]+_[0-9]+"
+                    word.id = word.id[:5] + parse_id + word.id[4:]
+                    (x0, y0, x1, y1) = word.bbox
+                    # scale bbox from cropped-image space to scene/pixmap space
+                    old_bbox = word.bbox
+                    word.bbox = (
+                        int(x0 * scale_x + x_offset),
+                        int(y0 * scale_y + y_offset),
+                        int(x1 * scale_x + x_offset),
+                        int(y1 * scale_y + y_offset),
+                    )
+                    # FIXME update the range values in add_new_word_cb
+                    word.text_range = (0, 0)
+                    word.title_value_range = (0, 0)
+                    word.id_value_range = (0, 0)
+                    word.element_range = (0, 0)
+                    word.span_range = (0, 0)
+                    self.add_new_word_cb(word=word)
+            else:
+                self.add_new_word_cb(rect=rect)
             event.accept()
         else:
             super().mouseReleaseEvent(event)
+
+    def _crop_pixmap(self, rect: QRectF) -> QImage:
+        if not self.editor.page_pixmap:
+            return None
+        # Clamp rect to image bounds
+        img_rect = QRectF(self.editor.page_pixmap.rect())
+        rect = rect.intersected(img_rect)
+        if rect.isEmpty():
+            return None
+        return self.editor.page_pixmap.copy(rect.toRect()).toImage()
+
+    def _qimage_to_pil(self, qimage: QImage) -> PIL.Image.Image:
+        qimage = qimage.convertToFormat(QImage.Format_RGBA8888)
+        width, height = qimage.width(), qimage.height()
+        ptr = qimage.bits()
+        buf = bytes(ptr)
+        img = PIL.Image.frombuffer("RGBA", (width, height), buf, "raw", "RGBA", 0, 1)
+        return img.convert("RGB")
+
+    def _ocr_image(self, qimage: QImage, langs: Optional[str] = None, timeout: int = 30) -> bytes:
+        if shutil.which("tesseract") is None:
+            # tesseract is not installed
+            return None
+        langs = langs or self.editor.ocr_langs
+        pil_img = self._qimage_to_pil(qimage)
+        # pytesseract creates PNG tempfiles in /tmp/
+        # https://github.com/madmaze/pytesseract/issues/172
+        # https://stackoverflow.com/questions/34248492
+        # TODO? use https://github.com/sirfz/tesserocr
+        tiff_bytes = pil_to_tiff_bytes(pil_img)
+        args = [
+            "tesseract",
+            "-", # input: stdin
+            "-", # output: stdout
+            "-l", langs,
+            # "-c", "tessedit_create_hocr=1", # config
+            "quiet", # config: hide "Estimating resolution as N" messages
+            "hocr", # extension
+        ]
+        hocr_bytes = subprocess.check_output(args, input=tiff_bytes, timeout=timeout)
+        return hocr_bytes
+
+
+def pil_to_tiff_bytes(img: PIL.Image.Image) -> bytes:
+    # why? TIFF is faster than PNG
+    buf = io.BytesIO()
+    img.save(buf, format="tiff")
+    return buf.getvalue()
 
 
 class HocrEditor(QMainWindow):
@@ -379,7 +471,7 @@ class HocrEditor(QMainWindow):
         self.scene = QGraphicsScene()
         # TODO rename to self.page_view
         self.view = PageView(
-            self.scene,
+            self,
             add_new_word_cb=self.add_new_word_from_page_view,
         )
         self.page_view = self.view
@@ -394,6 +486,8 @@ class HocrEditor(QMainWindow):
         # set self.parser
         self.words: list[Word] = []
         self.word_items: dict[str, list[WordItem]] = {}
+        self.page_pixmap = None
+        self.ocr_langs = "eng"
         self.load_hocr(hocr_file)
 
         self.changed_word_id: Optional[bytes] = None
@@ -486,6 +580,28 @@ class HocrEditor(QMainWindow):
         # so different line endings dont show up in "git diff"
         source_bytes = source_bytes.replace(b"\r\n", b"\n")
 
+        # get tesseract languages parameter value from hocr file
+        # TODO https://github.com/tesseract-ocr/tesseract/issues/4455
+        # FIXME use tree-sitter to parse the lang attributes
+        ocr_par_lang_regex = rb"<p class='ocr_par' id='[^']+' lang='([^']+)'"
+        ocrx_word_lang_regex = rb"<span class='ocrx_word' id='[^']+' title='[^']+' lang='([^']+)'"
+        langs = []
+        if match := re.search(ocr_par_lang_regex, source_bytes):
+            main_lang = match.group(1).decode("utf8")
+            debug and print(f"load_hocr: found main language {main_lang!r}")
+            langs.append(main_lang)
+        else:
+            debug and print(f"load_hocr: not found main language")
+        extra_langs = dict() # emulate OrderedSet
+        for match in re.finditer(ocrx_word_lang_regex, source_bytes):
+            extra_lang = match.group(1).decode("utf8")
+            extra_langs[extra_lang] = None
+        extra_langs = list(extra_langs.keys())
+        debug and print(f"load_hocr: found extra languages {extra_langs!r}")
+        langs += extra_langs
+        self.ocr_langs = "+".join(langs)
+        print(f"load_hocr: found ocr_langs {self.ocr_langs!r}")
+
         self.parser = HocrParser(source_bytes)
         self.words = self.parser.find_words()
         # print("self.words", self.words)
@@ -511,6 +627,7 @@ class HocrEditor(QMainWindow):
                 pixmap = QPixmap(img_path)
                 if _is_dark_mode(self.view):
                     pixmap = _invert_pixmap(pixmap)
+                self.page_pixmap = pixmap
                 self.scene.addPixmap(pixmap).setZValue(-1)
             # FIXME support hocr files with multiple pages
             break # stop after first page
@@ -720,11 +837,17 @@ class HocrEditor(QMainWindow):
         item.setSelected(True)
 
     @print_exceptions
-    def add_new_word_from_page_view(self, rect: QRectF):
-        x0, y0 = int(rect.x()), int(rect.y())
-        x1, y1 = int(rect.x() + rect.width()), int(rect.y() + rect.height())
-        new_id = b"word_" + "".join(random.choices(string.ascii_letters + string.digits, k=8)).encode("ascii")
-        new_word = Word(
+    def add_new_word_from_page_view(
+            self,
+            rect: Optional[QRectF] = None,
+            word: Optional[Word] = None,
+        ):
+        assert rect or word
+        if rect:
+            x0, y0 = int(rect.x()), int(rect.y())
+            x1, y1 = int(rect.x() + rect.width()), int(rect.y() + rect.height())
+            new_id = b"word_" + get_random_bytestring()
+        new_word = word or Word(
             id=new_id,
             text=b"",
             bbox=(x0, y0, x1, y1),
@@ -736,8 +859,19 @@ class HocrEditor(QMainWindow):
             element_range=(0, 0),
             span_range=(0, 0),
         )
-        # words = self.parser.find_words()
-        # self.words = self.parser.find_words() # force update
+        if word:
+            pass
+            # FIXME update the range values
+            # this is not done in refresh_page_view
+            # word.text_range = (0, 0)
+            # word.title_value_range = (0, 0)
+            # word.id_value_range = (0, 0)
+            # word.element_range = (0, 0)
+            # word.span_range = (0, 0)
+        # force update
+        # this is needed to actually remove words
+        # TODO incremental update
+        self.words = self.parser.find_words()
         words = self.words
         lines = group_words_into_lines(words, y_threshold=50)
         line_idx, word_idx = find_insert_line_and_index(new_word.bbox, lines)
@@ -752,6 +886,7 @@ class HocrEditor(QMainWindow):
                 if w.id in line:
                     word_to_line[w.id] = idx
 
+        # TODO create a new line if the word does not fit into existing lines
         # TODO better. the new word should be inserted between old words in the same line
         if lines:
             line_words = lines[line_idx]
@@ -765,10 +900,12 @@ class HocrEditor(QMainWindow):
         else:
             insert_line = 0
 
+        (x0, y0, x1, y1) = new_word.bbox
+
         new_span_line = (
-            b"      <span class='ocrx_word' id='" + new_id +
+            b"      <span class='ocrx_word' id='" + new_word.id +
             b"' title='bbox " + str(x0).encode("ascii") + b" " + str(y0).encode("ascii") + b" " +
-            str(x1).encode("ascii") + b" " + str(y1).encode("ascii") + b"'></span>"
+            str(x1).encode("ascii") + b" " + str(y1).encode("ascii") + b"'>" + new_word.text + b"</span>"
         )
 
         lines_in_source.insert(insert_line, new_span_line)
@@ -850,7 +987,7 @@ def find_insert_line_and_index(new_bbox, lines, line_y_tolerance=50):
     line_index = len(lines)
     for i, line in enumerate(lines):
         line_y = sum(w.bbox[1] for w in line) / len(line)  # avg y
-        debug and print(f"line {i}: line_y", line_y, "text", repr(" ".join(w.text for w in line)))
+        debug and print(f"line {i}: line_y", line_y, "text", repr(" ".join(w.text.decode("utf8") for w in line)))
         if y0 < (line_y + line_y_tolerance):
             line_index = i
             break
@@ -869,6 +1006,16 @@ def find_insert_line_and_index(new_bbox, lines, line_y_tolerance=50):
             break
         word_index = i + 1
     return line_index, word_index
+
+
+def get_random_bytestring(k=8) -> bytes:
+    chars = random.choices(string.ascii_letters + string.digits, k=k)
+    return "".join(chars).encode("ascii")
+
+
+def get_random_word_id() -> bytes:
+    chars = random.choices(string.ascii_letters + string.digits, k=8)
+    return b"word_" + "".join(chars).encode("ascii")
 
 
 def main():

@@ -1,3 +1,4 @@
 pyside6
 tree-sitter
 tree-sitter-language-pack
+pillow

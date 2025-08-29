@@ -11,6 +11,7 @@ pkgs.mkShell {
       tree-sitter
       # tree-sitter-languages # broken
       tree-sitter-language-pack
+      pillow
       mypy # type checker
     ]))
   ];
