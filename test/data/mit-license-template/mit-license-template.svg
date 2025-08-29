@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg version="1.1" viewBox="0 0 160 92" xmlns="http://www.w3.org/2000/svg">
+  <g>
+    <text x="5" y="5" font-family="Monospace" font-size="3px" xml:space="preserve">
+      <tspan x="5" y="6.5692606">MIT License</tspan>
+      <tspan x="5" y="10.538011" />
+      <tspan x="5" y="14.506761">Copyright (c) &lt;YEAR&gt; &lt;AUTHOR&gt;</tspan>
+      <tspan x="5" y="18.47551" />
+      <tspan x="5" y="22.44426">Permission is hereby granted, free of charge, to any person obtaining a copy</tspan>
+      <tspan x="5" y="26.41301">of this software and associated documentation files (the "Software"), to deal</tspan>
+      <tspan x="5" y="30.38176">in the Software without restriction, including without limitation the rights</tspan>
+      <tspan x="5" y="34.35051">to use, copy, modify, merge, publish, distribute, sublicense, and/or sell</tspan>
+      <tspan x="5" y="38.31926">copies of the Software, and to permit persons to whom the Software is</tspan>
+      <tspan x="5" y="42.28801">furnished to do so, subject to the following conditions:</tspan>
+      <tspan x="5" y="46.25676" />
+      <tspan x="5" y="50.22551">The above copyright notice and this permission notice shall be included in all</tspan>
+      <tspan x="5" y="54.19426">copies or substantial portions of the Software.</tspan>
+      <tspan x="5" y="58.16301" />
+      <tspan x="5" y="62.13176">The Software is provided "as is", without warranty of any kind, express or</tspan>
+      <tspan x="5" y="66.10051">implied, including but not limited to the warranties of merchantability,</tspan>
+      <tspan x="5" y="70.06926">fitness for a particular purpose and noninfringement. In no event shall the</tspan>
+      <tspan x="5" y="74.03801">authors or copyright holders be liable for any claim, damages or other</tspan>
+      <tspan x="5" y="78.00676">liability, whether in an action of contract, tort or otherwise, arising from,</tspan>
+      <tspan x="5" y="81.97551">out of or in connection with the Software or the use or other dealings in the</tspan>
+      <tspan x="5" y="85.94426">Software.</tspan>
+    </text>
+  </g>
+</svg>
