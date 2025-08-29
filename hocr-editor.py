@@ -49,6 +49,9 @@ from PySide6.QtCore import QRectF, Qt, QPointF
 from PySide6.QtCore import (
     QTimer,
     QSizeF,
+    QTranslator,
+    QLocale,
+    QLibraryInfo,
 )
 
 from hocr_parser import HocrParser, Word
@@ -469,6 +472,9 @@ class HocrEditor(QMainWindow):
         super().__init__()
         self.hocr_file = hocr_file  # remember original filename
         self.scene = QGraphicsScene()
+        # TODO update self.modified from page_view and source_editor
+        self.modified = False
+        self.modified = True # always ask to save before exit # TODO remove
         # TODO rename to self.page_view
         self.view = PageView(
             self,
@@ -924,6 +930,27 @@ class HocrEditor(QMainWindow):
         self.source_editor.setTextCursor(cursor)
         self.source_editor.setFocus()
 
+    def closeEvent(self, event):
+        if not self.modified:
+            event.accept()
+            return
+        # ask to save before exit
+        reply = QMessageBox(self)
+        reply.setWindowTitle(self.tr("Save changes?"))
+        reply.setText(self.tr("The document has been modified.\nDo you want to save your changes?"))
+        reply.setStandardButtons(
+            QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel
+        )
+        reply.setDefaultButton(QMessageBox.Save)
+        choice = reply.exec()
+        if choice == QMessageBox.Save:
+            self.save_hocr()
+            event.accept()
+        elif choice == QMessageBox.Discard:
+            event.accept()
+        else:  # Cancel
+            event.ignore()
+
     @print_exceptions
     def save_hocr(self):
         """Save to original file."""
@@ -1032,6 +1059,20 @@ def main():
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     app = QApplication(sys.argv)
+
+    # TODO add translation files
+    # pyside6-lupdate hocr-editor.py -ts translations_de.ts
+    # # translate translations_de.ts
+    # pyside6-lrelease translations_de.ts -qm translations_de.qm
+    r"""
+    # Load Qt translations for i18n
+    translator = QTranslator()
+    locale = QLocale.system()
+    qt_translations = QLibraryInfo.path(QLibraryInfo.TranslationsPath)
+    translator.load(locale, "qtbase", "_", qt_translations)
+    translator.load("translations_de.qm")
+    app.installTranslator(translator)
+    """
 
     overlay_color = None
     if args.overlay_color:
