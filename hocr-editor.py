@@ -520,9 +520,9 @@ class HocrEditor(QMainWindow):
             self.word_items[word.id].append(item)
 
     @print_exceptions
-    def refresh_page_view(self):
+    def refresh_page_view(self, force=False):
         """Update words from parser"""
-        if 0:
+        if force:
             # slow non-incremental update
             self.scene.clear()
             self.load_words()
