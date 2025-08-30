@@ -8,6 +8,10 @@ graphical HOCR editor to produce minimal diffs for proofreading of tesseract OCR
 python hocr-editor.py test/data/mit-license-template/mit-license-template.hocr
 ```
 
+## screenshot
+
+![hocr-editor-qt screenshot](doc/hocr-editor-qt-screenshot.webp)
+
 ## install
 
 ### Linux
