@@ -1,3 +1,4 @@
+import re
 from PySide6.QtWidgets import (
     QPlainTextEdit,
 )
@@ -7,6 +8,10 @@ from PySide6.QtGui import (
     QShortcut,
     QKeySequence,
     QTextCursor,
+    QSyntaxHighlighter,
+    QTextCharFormat,
+    QColor,
+    QPalette,
 )
 from PySide6.QtCore import (
     Qt,
@@ -26,6 +31,42 @@ REMOVE = 2
 CHUNK_NORMAL = 0
 CHUNK_TYPING = 1
 CHUNK_DELETE = 2
+
+
+class HocrHighlighter(QSyntaxHighlighter):
+    """Syntax highlighter for HOCR source: makes word text stand out"""
+
+    def __init__(self, document, parent_editor):
+        super().__init__(document)
+        self.parent_editor = parent_editor
+
+        # Detect theme from editor palette
+        pal: QPalette = parent_editor.palette()
+        is_light = pal.color(QPalette.Base).lightness() > 128
+
+        if is_light:  # light mode
+            self.word_color = QColor("black")
+            self.meta_color = QColor(102, 102, 102)   # ~60% grey
+        else:  # dark mode
+            self.word_color = QColor("white")
+            self.meta_color = QColor(153, 153, 153)   # ~60% grey
+
+        self.word_re = re.compile(r"<span class='ocrx_word'[^>]*>([^<]+)<")
+
+    def highlightBlock(self, text: str):
+        """Apply formatting to each block (line)."""
+
+        # First: gray out the whole line
+        meta_format = QTextCharFormat()
+        meta_format.setForeground(self.meta_color)
+        self.setFormat(0, len(text), meta_format)
+
+        # Then: apply strong color to word text content
+        for m in self.word_re.finditer(text):
+            start, end = m.span(1)
+            word_format = QTextCharFormat()
+            word_format.setForeground(self.word_color)
+            self.setFormat(start, end - start, word_format)
 
 
 class HocrSourceEditor(QPlainTextEdit):
@@ -50,6 +91,8 @@ class HocrSourceEditor(QPlainTextEdit):
         self.cursor_sync_cb = cursor_sync_cb
         self._updating = False  # avoid recursive updates
         self.setUndoRedoEnabled(False)
+
+        self.highlighter = HocrHighlighter(self.document(), self)
 
         # Font / zoom
         self.default_font = QFont("Courier New", 12)  # readable monospace
