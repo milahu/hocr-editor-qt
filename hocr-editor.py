@@ -437,7 +437,7 @@ class PageView(QGraphicsView):
         return img.convert("RGB")
 
     def _ocr_image(self, qimage: QImage, langs: Optional[str] = None, timeout: int = 30) -> bytes:
-        if shutil.which("tesseract") is None:
+        if shutil.which(self.editor.args.tesseract_command) is None:
             # tesseract is not installed
             return None
         langs = langs or self.editor.ocr_langs
@@ -448,14 +448,22 @@ class PageView(QGraphicsView):
         # TODO? use https://github.com/sirfz/tesserocr
         tiff_bytes = pil_to_tiff_bytes(pil_img)
         args = [
-            "tesseract",
+            self.editor.args.tesseract_command,
             "-", # input: stdin
             "-", # output: stdout
             "-l", langs,
-            # "-c", "tessedit_create_hocr=1", # config
-            "quiet", # config: hide "Estimating resolution as N" messages
-            "hocr", # extension
+            "-c", "tessedit_create_hocr=1",
+            # TODO get dpi value from hocr file
+            # <div class='ocr_page' id='page_1' title='...; scan_res 300 300'>
+            # "--dpi", "300",
+            "--loglevel", "WARN", # ALL, TRACE, DEBUG, INFO, WARN, ERROR, FATAL, OFF
         ]
+        if self.editor.args.tessdata_dir:
+            args += [
+                "--oem", "1",
+                "--psm", "6",
+                "--tessdata-dir", self.editor.args.tessdata_dir,
+            ]
         hocr_bytes = subprocess.check_output(args, input=tiff_bytes, timeout=timeout)
         return hocr_bytes
 
@@ -1099,6 +1107,15 @@ def main():
         "--overlay-color",
         default=None,
         help="Overlay color (color name or #RRGGBB)",
+    )
+    parser.add_argument(
+        "--tesseract-command",
+        default="tesseract",
+    )
+    parser.add_argument(
+        "--tessdata-dir",
+        default=None,
+        help="usually a git clone of https://github.com/tesseract-ocr/tessdata_best",
     )
     args = parser.parse_args()
 
