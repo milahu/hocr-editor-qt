@@ -59,6 +59,7 @@ from hocr_parser import print_exceptions
 from hocr_parser import debug, debug_word_id
 from hocr_source_editor import HocrSourceEditor
 from resizable_rect_item import ResizableRectItem
+import git_helpers
 
 bbox_re = re.compile(r"bbox (\d+) (\d+) (\d+) (\d+)")
 xwconf_re = re.compile(r"x_wconf (\d+)")
@@ -947,6 +948,44 @@ class HocrEditor(QMainWindow):
             self.save_hocr()
             event.accept()
         elif choice == QMessageBox.Discard:
+            event.accept()
+        else:  # Cancel
+            event.ignore()
+
+    @print_exceptions
+    def closeEvent(self, event):
+        if not self.modified:
+            event.accept()
+            return
+        # ask to save before exit
+        reply = QMessageBox(self)
+        reply.setWindowTitle(self.tr("Save changes?"))
+        reply.setText(self.tr("The document has been modified.\nDo you want to save your changes?"))
+        reply.setStandardButtons(QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
+        reply.setDefaultButton(QMessageBox.Save)
+
+        git_root = None
+        relpath = None
+        commit_btn = None
+
+        if shutil.which("git") and self.hocr_file:
+            git_root = git_helpers.find_git_root(self.hocr_file)
+            if git_root:
+                relpath = os.path.relpath(self.hocr_file, git_root)
+                if git_helpers.is_file_tracked(git_root, relpath):
+                    commit_btn = reply.addButton("Commit", QMessageBox.AcceptRole)
+
+        choice = reply.exec()
+
+        if choice == QMessageBox.Save:
+            self.save_hocr()
+            event.accept()
+        elif choice == QMessageBox.Discard:
+            event.accept()
+        elif git_root and reply.clickedButton() and reply.clickedButton().text() == "Commit":
+            self.save_hocr()
+            print(f"committing hocr file {relpath!r} in git repo {git_root!r}")
+            git_helpers.git_commit(self.hocr_file, git_root, relpath)
             event.accept()
         else:  # Cancel
             event.ignore()
