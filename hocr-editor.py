@@ -482,7 +482,7 @@ class HocrEditor(QMainWindow):
         )
         self.page_view = self.view
 
-        self.setWindowTitle("HOCR Editor")
+        self.setWindowTitle(f"{os.path.basename(hocr_file)} - HOCR Editor")
         self.setWindowIcon(QIcon(os.path.dirname(__file__) + "/Eo_circle_blue_letter-h.2.png"))
 
         # track chosen overlay color
