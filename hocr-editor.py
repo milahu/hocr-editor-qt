@@ -469,9 +469,17 @@ def pil_to_tiff_bytes(img: PIL.Image.Image) -> bytes:
 
 class HocrEditor(QMainWindow):
     @print_exceptions
-    def __init__(self, hocr_file: str):
+    def __init__(self, args: Any):
         super().__init__()
-        self.hocr_file = hocr_file  # remember original filename
+        self.args = args
+        self.hocr_file = args.hocr_file  # remember original filename
+        self.overlay_color = None
+        if args.overlay_color:
+            overlay_color = QColor(args.overlay_color)
+            if overlay_color.isValid():
+                self.overlay_color = overlay_color
+            else:
+                print(f"Warning: invalid overlay color {args.overlay_color}")
         self.scene = QGraphicsScene()
         # TODO update self.modified from page_view and source_editor
         self.modified = False
@@ -483,7 +491,7 @@ class HocrEditor(QMainWindow):
         )
         self.page_view = self.view
 
-        self.setWindowTitle(f"{os.path.basename(hocr_file)} - HOCR Editor")
+        self.setWindowTitle(f"{os.path.basename(self.hocr_file)} - HOCR Editor")
         self.setWindowIcon(QIcon(os.path.dirname(__file__) + "/Eo_circle_blue_letter-h.2.png"))
 
         # track chosen overlay color
@@ -495,7 +503,7 @@ class HocrEditor(QMainWindow):
         self.word_items: dict[str, list[WordItem]] = {}
         self.page_pixmap = None
         self.ocr_langs = "eng"
-        self.load_hocr(hocr_file)
+        self.load_hocr(self.hocr_file)
 
         self.changed_word_id: Optional[bytes] = None
 
@@ -1113,21 +1121,7 @@ def main():
     app.installTranslator(translator)
     """
 
-    overlay_color = None
-    if args.overlay_color:
-        overlay_color = QColor(args.overlay_color)
-        if not overlay_color.isValid():
-            print(f"Warning: invalid color {args.overlay_color}, using theme color")
-            overlay_color = None
-
-    editor = HocrEditor(args.hocr_file)
-
-    if overlay_color:
-        editor.overlay_text_color = overlay_color
-        # apply immediately to all items
-        for item in editor.scene.items():
-            if hasattr(item, "set_text_color"):
-                item.set_text_color(overlay_color)
+    editor = HocrEditor(args)
 
     editor.show()
 
