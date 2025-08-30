@@ -69,7 +69,82 @@ class HocrHighlighter(QSyntaxHighlighter):
             self.setFormat(start, end - start, word_format)
 
 
-class HocrSourceEditor(QPlainTextEdit):
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton
+)
+
+
+class HocrSourceEditor(QWidget):
+    """Wrapper: editor + special character buttons"""
+
+    SPECIAL_CHARS = {
+        "„": ("„", "bottom double quotes"),
+        "“": ("“", "top double quote"),
+        "‚": ("‚", "bottom single quote"),
+        "‘": ("‘", "top single quote"),
+        "»": ("»", "right-pointing double angle quote"),
+        "«": ("«", "left-pointing double angle quote"),
+        "›": ("›", "right-pointing single angle quote"),
+        "‹": ("‹", "left-pointing single angle quote"),
+        "”": ("”", "closing double quote"),
+        "’": ("’", "closing single quote"),
+        "…": ("…", "ellipsis"),
+        "—": ("—", "em dash"),
+        "-": ("-", "hyphen-minus"),
+        "•": ("•", "bullet"),
+        "<": ("&lt;", "less than sign"),
+        ">": ("&gt;", "greater than sign"),
+        "&": ("&amp;", "ampersand"),
+        "^{ }": ("<sup></sup>", "superscript"),
+        "_{ }": ("<sub></sub>", "subscript"),
+    }
+
+    def __init__(
+            self,
+            parser: HocrParser,
+            update_page_cb,
+            cursor_sync_cb,
+            parent=None,
+        ):
+        super().__init__(parent)
+
+        layout = QVBoxLayout(self)
+
+        self.editor = HocrSourceEditorTextEdit(parser, update_page_cb, cursor_sync_cb)
+        layout.addWidget(self.editor)
+
+        # Button bar
+        button_bar = QHBoxLayout()
+        layout.addLayout(button_bar)
+
+        button_bar.addStretch()  # empty space left
+
+        for label, (insert_text, tooltip) in self.SPECIAL_CHARS.items():
+            btn = QPushButton(label.replace("&", "&&"))  # show literal "&"
+            btn.setFixedWidth(32)
+            btn.setToolTip(tooltip)
+            def on_clicked(checked=False, txt=insert_text):
+                self.insert_char(txt)
+            btn.clicked.connect(on_clicked)
+            button_bar.addWidget(btn)
+
+        button_bar.addStretch()  # empty space right
+
+    def insert_char(self, text: str):
+        """Insert escaped text at cursor position and move cursor after it."""
+        cursor = self.editor.textCursor()
+        pos = cursor.position()
+        cursor.insertText(text)
+        # Move cursor to just after inserted text
+        cursor.setPosition(pos + len(text))
+        self.editor.setTextCursor(cursor)
+        # Return focus to editor so user can keep typing
+        self.editor.setFocus()
+        # Sync parser + page after insert
+        self.editor._sync_parser_and_page()
+
+
+class HocrSourceEditorTextEdit(QPlainTextEdit):
     """Editable HOCR source view with sync callback"""
 
     TYPING_TIMEOUT_MS = 500

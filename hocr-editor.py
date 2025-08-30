@@ -766,7 +766,7 @@ class HocrEditor(QMainWindow):
 
     @print_exceptions
     def on_word_selected(self, word_item: WordItem):
-        if self.source_editor.hasFocus():
+        if self.source_editor.editor.hasFocus():
             return
         # Convert byte offsets to character offsets
         start_char = len(self.parser.source_bytes[:word_item.word.text_range[0]].decode(
@@ -775,15 +775,15 @@ class HocrEditor(QMainWindow):
             self.parser.source_encoding, errors="replace"))
 
         # Set selection
-        cursor = self.source_editor.textCursor()
+        cursor = self.source_editor.editor.textCursor()
         cursor.setPosition(start_char)
         cursor.setPosition(end_char, QTextCursor.KeepAnchor)
-        self.source_editor.setTextCursor(cursor)
+        self.source_editor.editor.setTextCursor(cursor)
 
         # center the cursor
-        self.source_editor.centerCursor()
+        self.source_editor.editor.centerCursor()
 
-        self.source_editor.setFocus()
+        self.source_editor.editor.setFocus()
 
     @print_exceptions
     def on_word_changed(
@@ -811,7 +811,7 @@ class HocrEditor(QMainWindow):
             ok = self.parser.update(word_id, text=new_text, bbox=bbox)
 
         # reflect changed source immediately in code editor + redraw
-        self.source_editor.update_from_page()
+        self.source_editor.editor.update_from_page()
         # update the word positions
         # TODO incremental update
         # no. RuntimeError: Internal C++ object (WordItem) already deleted.
@@ -884,7 +884,7 @@ class HocrEditor(QMainWindow):
 
         # Determine insertion line number in source
         # TODO avoid splitlines. use word byte positions
-        lines_in_source = self.source_editor.toBytes().splitlines()
+        lines_in_source = self.source_editor.editor.toBytes().splitlines()
         word_to_line = {}
         # TODO better
         for idx, line in enumerate(lines_in_source):
@@ -916,19 +916,19 @@ class HocrEditor(QMainWindow):
 
         lines_in_source.insert(insert_line, new_span_line)
         new_source = b"\n".join(lines_in_source)
-        self.source_editor.setBytes(new_source)
+        self.source_editor.editor.setBytes(new_source)
         self.parser.set_source_bytes(new_source)
         self.refresh_page_view()
 
         # Place cursor inside new span
-        cursor = self.source_editor.textCursor()
+        cursor = self.source_editor.editor.textCursor()
         pos = len((
             b"\n".join(lines_in_source[:insert_line]) +
             new_span_line[:-len("</span>")+1]
         ).decode(self.parser.source_encoding, errors="replace"))
         cursor.setPosition(pos)
-        self.source_editor.setTextCursor(cursor)
-        self.source_editor.setFocus()
+        self.source_editor.editor.setTextCursor(cursor)
+        self.source_editor.editor.setFocus()
 
     def closeEvent(self, event):
         if not self.modified:
