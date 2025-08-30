@@ -44,6 +44,7 @@ from PySide6.QtGui import (
     QIcon,
     QAction,
     QColor,
+    QPalette,
 )
 from PySide6.QtCore import QRectF, Qt, QPointF
 from PySide6.QtCore import (
@@ -70,10 +71,15 @@ def _extract_image_from_title(title: bytes) -> Optional[bytes]:
     m = re.search(rb'image\s+"([^"]+)"', title)
     return m.group(1) if m else None
 
-def _is_dark_mode(view) -> bool:
-    pal = view.palette()
-    bg = pal.color(view.backgroundRole())
-    return (0.299*bg.red() + 0.587*bg.green() + 0.114*bg.blue()) < 128
+def _is_dark_mode(widget: QWidget) -> bool:
+    """
+    Cross-platform luminance-based dark mode check.
+    Uses the application's palette rather than an individual widget.
+    """
+    pal = widget.palette()
+    bg = pal.color(QPalette.Window)
+    luminance = 0.299 * bg.red() + 0.587 * bg.green() + 0.114 * bg.blue()
+    return luminance < 128
 
 def _invert_pixmap(pixmap: QPixmap) -> QPixmap:
     img = pixmap.toImage().convertToFormat(QImage.Format_ARGB32)
@@ -1137,6 +1143,17 @@ def main():
     translator.load("translations_de.qm")
     app.installTranslator(translator)
     """
+
+    # use high contrast in darkmode on windows
+    # workaround for Qt bug:
+    # low contrast in darkmode on windows
+    # https://forum.qt.io/topic/101391/windows-10-dark-theme/4
+    if os.name == "nt" and _is_dark_mode(app):
+        # Override global palette for readability
+        pal = app.palette()
+        pal.setColor(QPalette.Base, QColor("black"))
+        pal.setColor(QPalette.Text, QColor("white"))
+        app.setPalette(pal)
 
     editor = HocrEditor(args)
 
