@@ -12,6 +12,8 @@ import traceback
 import shutil
 import subprocess
 import PIL.Image
+if os.name == "nt":
+    import winreg
 from typing import (
     Optional,
     Tuple,
@@ -30,6 +32,7 @@ from PySide6.QtWidgets import (
     QStyle,
     QPlainTextEdit,
     QColorDialog,
+    QStyleFactory,
 )
 from PySide6.QtGui import QBrush, QColor, QPen, QFont, QMouseEvent
 from PySide6.QtGui import (
@@ -53,6 +56,7 @@ from PySide6.QtCore import (
     QTranslator,
     QLocale,
     QLibraryInfo,
+    QEvent,
 )
 
 from hocr_parser import HocrParser, Word
@@ -61,6 +65,7 @@ from hocr_parser import debug, debug_word_id
 from hocr_source_editor import HocrSourceEditor
 from resizable_rect_item import ResizableRectItem
 import git_helpers
+import color_helpers
 
 bbox_re = re.compile(r"bbox (\d+) (\d+) (\d+) (\d+)")
 xwconf_re = re.compile(r"x_wconf (\d+)")
@@ -76,6 +81,19 @@ def _is_dark_mode(widget: QWidget) -> bool:
     Cross-platform luminance-based dark mode check.
     Uses the application's palette rather than an individual widget.
     """
+    # fix: the "is dark mode" check only works in one direction
+    # dark -> light: ok
+    # light -> dark: fail
+    if os.name == "nt":
+        try:
+            key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+            )
+            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            return value == 0
+        except OSError:
+            return False
     pal = widget.palette()
     bg = pal.color(QPalette.Window)
     luminance = 0.299 * bg.red() + 0.587 * bg.green() + 0.114 * bg.blue()
@@ -1106,6 +1124,39 @@ def get_random_word_id() -> bytes:
     return b"word_" + "".join(chars).encode("ascii")
 
 
+class HocrEditorApp(QApplication):
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.apply_palette()
+
+    def event(self, e):
+        # update self.palette() for _is_dark_mode
+        handled = super().event(e)
+        if e.type() == QEvent.ApplicationPaletteChange:
+            # print("System theme changed — new palette detected")
+            self.apply_palette()
+        return handled
+
+    def apply_palette(self):
+        # use high contrast in darkmode on windows
+        # workaround for Qt bug:
+        # low contrast in darkmode on windows
+        # https://forum.qt.io/topic/101391/windows-10-dark-theme/4
+        if os.name == "nt":
+            self.setStyle(QStyleFactory.create("Fusion"))
+            if _is_dark_mode(self):
+                # print("apply_palette: dark mode")
+                color_helpers.apply_dark_palette(self)
+            else:
+                # print("apply_palette: light mode")
+                color_helpers.apply_light_palette(self)
+
+    def _apply_dark_palette(self):
+        self.setStyle(QStyleFactory.create("Fusion"))
+
+        self.setPalette(pal)
+
+
 def main():
     parser = argparse.ArgumentParser(description="HOCR Editor")
     parser.add_argument("hocr_file", help="Path to HOCR file")
@@ -1128,7 +1179,7 @@ def main():
     # handle Ctrl+C from terminal
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
-    app = QApplication(sys.argv)
+    app = HocrEditorApp(sys.argv)
 
     # TODO add translation files
     # pyside6-lupdate hocr-editor.py -ts translations_de.ts
@@ -1143,17 +1194,6 @@ def main():
     translator.load("translations_de.qm")
     app.installTranslator(translator)
     """
-
-    # use high contrast in darkmode on windows
-    # workaround for Qt bug:
-    # low contrast in darkmode on windows
-    # https://forum.qt.io/topic/101391/windows-10-dark-theme/4
-    if os.name == "nt" and _is_dark_mode(app):
-        # Override global palette for readability
-        pal = app.palette()
-        pal.setColor(QPalette.Base, QColor("black"))
-        pal.setColor(QPalette.Text, QColor("white"))
-        app.setPalette(pal)
 
     editor = HocrEditor(args)
 
