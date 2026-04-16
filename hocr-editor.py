@@ -564,17 +564,11 @@ class HocrEditor(QMainWindow):
         # --- zoom shortcuts ---
         QShortcut(QKeySequence("Ctrl++"), self, self.view.zoom_in)
         QShortcut(QKeySequence("Ctrl+-"), self, self.view.zoom_out)
-        QShortcut(QKeySequence("Ctrl+0"), self, self.view.fit_width)
-
-        self.showMaximized() # use full screen size
-
-        # Initial width ratio
-        page_view_initial_width = 0.5
-        current_width = self.width()
-        splitter.setSizes([int(current_width * page_view_initial_width), int(current_width * (1 - page_view_initial_width))])
-        # proportional resizing behavior after initial sizing
-        splitter.setStretchFactor(0, page_view_initial_width)
-        splitter.setStretchFactor(1, (1 - page_view_initial_width))
+        # give more height to source_editor
+        view_height, source_editor_height = 100, 200
+        splitter.setSizes([view_height, source_editor_height])
+        splitter.setStretchFactor(0, view_height)  # self.view
+        splitter.setStretchFactor(1, source_editor_height)  # self.source_editor
 
         # TODO better
         for delay in [1, 10, 20, 50, 100, 200, 500]:
