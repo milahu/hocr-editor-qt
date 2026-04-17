@@ -566,6 +566,8 @@ class HocrEditor(QMainWindow):
         QShortcut(QKeySequence("Ctrl+-"), self, self.view.zoom_out)
         QShortcut(QKeySequence("Ctrl+0"), self, self.view.fit_width)
 
+        self.showMaximized() # use full screen size
+
         # give more height to source_editor
         view_height, source_editor_height = 100, 200
         splitter.setSizes([view_height, source_editor_height])
