@@ -180,7 +180,7 @@ class Word:
     # raw title value (without surrounding quotes)
     title_value: Optional[bytes]
     # precise byte ranges (start, end) in source_bytes
-    text_range: Tuple[int, int]
+    byte_range: Tuple[int, int]
     title_value_range: Tuple[int, int]
     id_value_range: Tuple[int, int]
     element_range: Tuple[int, int]
@@ -247,7 +247,7 @@ class HocrParser:
                 bbox=bbox,
                 x_wconf=None,
                 title_value=title_val,
-                text_range=(0,0),
+                byte_range=(0,0),
                 title_value_range=title_range,
                 id_value_range=attrs.get(b"id",(b"",(0,0)))[1],
                 element_range=(element.start_byte, element.end_byte),
@@ -276,7 +276,7 @@ class HocrParser:
                 bbox=bbox,
                 x_wconf=None,
                 title_value=title_val,
-                text_range=(0,0),
+                byte_range=(0,0),
                 title_value_range=title_range,
                 id_value_range=attrs.get(b"id",(None,(0,0)))[1],
                 element_range=(element.start_byte, element.end_byte),
@@ -307,11 +307,11 @@ class HocrParser:
         changed = False
 
         # 1) text
-        if text is not None and node.text_range:
+        if text is not None and node.byte_range:
             if debug_word_id and debug_word_id == word_id:
-                old_text = self.source_bytes[node.text_range[0]:node.text_range[1]]
+                old_text = self.source_bytes[node.byte_range[0]:node.byte_range[1]]
                 print(f"word {word_id}: update: update text: {old_text!r} -> {text!r}")
-            self._replace_range(node.text_range, text)
+            self._replace_range(node.byte_range, text)
             changed = True
             # reindex to refresh ranges after _replace_range
             idx = self._index_words()
@@ -366,10 +366,10 @@ class HocrParser:
         changed = False
 
         # 1) text
-        if text is not None and word.text_range:
-            old_text = self.source_bytes[word.text_range[0]:word.text_range[1]]
+        if text is not None and word.byte_range:
+            old_text = self.source_bytes[word.byte_range[0]:word.byte_range[1]]
             print(f"word {word.id}: update_by_span: update text (by span): {old_text!r} -> {text!r}")
-            self._replace_range(word.text_range, text)
+            self._replace_range(word.byte_range, text)
             changed = True
             # re-find word after parse
             word = self.find_word_by_span_start(span_start) or word
@@ -505,11 +505,11 @@ class HocrParser:
         end_tag = element.children[-1]
         if text_node is not None:
             text = sb[text_node.start_byte:text_node.end_byte]
-            text_range = (text_node.start_byte, text_node.end_byte)
+            byte_range = (text_node.start_byte, text_node.end_byte)
         else:
             # empty span: zero-length before end_tag
             text = b""
-            text_range = (end_tag.start_byte, end_tag.start_byte)
+            byte_range = (end_tag.start_byte, end_tag.start_byte)
 
         bbox, xw = _parse_title(title_val)
         if bbox is None:
@@ -522,7 +522,7 @@ class HocrParser:
             bbox=bbox,
             x_wconf=xw,
             title_value=title_val,
-            text_range=text_range,
+            byte_range=byte_range,
             title_value_range=title_range,
             id_value_range=id_range,
             element_range=(element.start_byte, element.end_byte),
@@ -593,14 +593,14 @@ class HocrParser:
 
         # content text
         text = b""
-        text_range: Tuple[int, int] = (element.start_byte, element.start_byte)
+        byte_range: Tuple[int, int] = (element.start_byte, element.start_byte)
         contents = [c for c in element.children if c.type == "content"]
         if contents:
             # find first CharData as text node
             for sub in contents[0].children:
                 if sub.type == "CharData":
                     text = sb[sub.start_byte:sub.end_byte]
-                    text_range = (sub.start_byte, sub.end_byte)
+                    byte_range = (sub.start_byte, sub.end_byte)
                     break
 
         end_tag = element.children[-1]
@@ -619,7 +619,7 @@ class HocrParser:
             bbox=bbox,
             x_wconf=xw,
             title_value=title_val,
-            text_range=text_range,
+            byte_range=byte_range,
             title_value_range=title_range,
             id_value_range=id_range,
             element_range=(element.start_byte, element.end_byte),

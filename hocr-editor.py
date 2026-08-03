@@ -430,7 +430,7 @@ class PageView(QGraphicsView):
                         int(y1 * scale_y + y_offset),
                     )
                     # FIXME update the range values in add_new_word_cb
-                    word.text_range = (0, 0)
+                    word.byte_range = (0, 0)
                     word.title_value_range = (0, 0)
                     word.id_value_range = (0, 0)
                     word.element_range = (0, 0)
@@ -808,7 +808,7 @@ class HocrEditor(QMainWindow):
         if self.source_editor.editor.hasFocus():
             return
         # Convert byte offsets to character offsets
-        start_char = len(self.parser.source_bytes[:word_item.word.text_range[0]].decode(
+        start_char = len(self.parser.source_bytes[:word_item.word.byte_range[0]].decode(
             self.parser.source_encoding, errors="replace"))
         end_char = start_char + len(word_item.word.text.decode(
             self.parser.source_encoding, errors="replace"))
@@ -898,7 +898,7 @@ class HocrEditor(QMainWindow):
             bbox=(x0, y0, x1, y1),
             x_wconf=None,
             title_value=None,
-            text_range=(0, 0),
+            byte_range=(0, 0),
             title_value_range=(0, 0),
             id_value_range=(0, 0),
             element_range=(0, 0),
@@ -908,7 +908,7 @@ class HocrEditor(QMainWindow):
             pass
             # FIXME update the range values
             # this is not done in refresh_page_view
-            # word.text_range = (0, 0)
+            # word.byte_range = (0, 0)
             # word.title_value_range = (0, 0)
             # word.id_value_range = (0, 0)
             # word.element_range = (0, 0)
