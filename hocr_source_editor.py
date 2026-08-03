@@ -63,10 +63,10 @@ class HocrHighlighter(QSyntaxHighlighter):
 
         # Then: apply strong color to word text content
         for m in self.word_re.finditer(text):
-            start, end = m.span(1)
+            start_char, end_char = m.span(1)
             word_format = QTextCharFormat()
             word_format.setForeground(self.word_color)
-            self.setFormat(start, end - start, word_format)
+            self.setFormat(start_char, end_char - start_char, word_format)
 
 
 from PySide6.QtWidgets import (
@@ -299,10 +299,10 @@ class HocrSourceEditorTextEdit(QPlainTextEdit):
     def _record_replace_selection(self, cur, doc_text) -> list[tuple]:
         if not cur.hasSelection():
             return []
-        start, end = sorted([cur.selectionStart(), cur.selectionEnd()])
-        removed_text = doc_text[start:end]
-        self._apply_remove(start, end - start)
-        return [(REMOVE, start, removed_text)]
+        start_char, end_char = sorted([cur.selectionStart(), cur.selectionEnd()])
+        removed_text = doc_text[start_char:end_char]
+        self._apply_remove(start_char, end_char - start_char)
+        return [(REMOVE, start_char, removed_text)]
 
     # ---- key / paste overrides ----
     def keyPressEvent(self, event) -> None:
@@ -332,9 +332,9 @@ class HocrSourceEditorTextEdit(QPlainTextEdit):
         if event.matches(QKeySequence.Cut):
             if not cur.hasSelection(): return
             # record delete op
-            start, end = sorted([cur.selectionStart(), cur.selectionEnd()])
-            removed_text = doc_text[start:end]
-            chunk.append((REMOVE, start, removed_text))
+            start_char, end_char = sorted([cur.selectionStart(), cur.selectionEnd()])
+            removed_text = doc_text[start_char:end_char]
+            chunk.append((REMOVE, start_char, removed_text))
             self._push_chunk(chunk, mode=CHUNK_DELETE)
             super().cut() # remove text, update clipboard
             self._sync_parser_and_page()
@@ -343,12 +343,12 @@ class HocrSourceEditorTextEdit(QPlainTextEdit):
         # Ctrl+Backspace: delete previous word
         if key == Qt.Key_Backspace and modifiers & Qt.ControlModifier:
             if cur.position() > 0:
-                start = self._word_start_before_cursor(cur.position(), doc_text)
-                removed_text = doc_text[start:cur.position()]
-                self._apply_remove(start, cur.position() - start)
-                cur.setPosition(start)
+                start_char = self._word_start_before_cursor(cur.position(), doc_text)
+                removed_text = doc_text[start_char:cur.position()]
+                self._apply_remove(start_char, cur.position() - start_char)
+                cur.setPosition(start_char)
                 self.setTextCursor(cur)
-                chunk.append((REMOVE, start, removed_text))
+                chunk.append((REMOVE, start_char, removed_text))
                 self._push_chunk(chunk, mode=CHUNK_DELETE)
                 self._sync_parser_and_page()
             return
@@ -356,9 +356,9 @@ class HocrSourceEditorTextEdit(QPlainTextEdit):
         # Ctrl+Delete: delete next word
         if key == Qt.Key_Delete and modifiers & Qt.ControlModifier:
             if cur.position() < len(doc_text):
-                end = self._word_end_after_cursor(cur.position(), doc_text)
-                removed_text = doc_text[cur.position():end]
-                self._apply_remove(cur.position(), end - cur.position())
+                end_char = self._word_end_after_cursor(cur.position(), doc_text)
+                removed_text = doc_text[cur.position():end_char]
+                self._apply_remove(cur.position(), end_char - cur.position())
                 chunk.append((REMOVE, cur.position(), removed_text))
                 self._push_chunk(chunk, mode=CHUNK_DELETE)
                 self._sync_parser_and_page()
@@ -397,11 +397,11 @@ class HocrSourceEditorTextEdit(QPlainTextEdit):
 
             # if selection exists, delete and reset cursor
             if cur.hasSelection():
-                start, end = sorted([cur.selectionStart(), cur.selectionEnd()])
-                removed_text = doc_text[start:end]
-                self._apply_remove(start, end - start)
-                ops.append((REMOVE, start, removed_text))
-                cur.setPosition(start) # reset cursor to start of selection
+                start_char, end_char = sorted([cur.selectionStart(), cur.selectionEnd()])
+                removed_text = doc_text[start_char:end_char]
+                self._apply_remove(start_char, end_char - start_char)
+                ops.append((REMOVE, start_char, removed_text))
+                cur.setPosition(start_char) # reset cursor to start of selection
                 self.setTextCursor(cur)
 
             insert_pos = cur.position()

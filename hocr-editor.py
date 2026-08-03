@@ -127,7 +127,7 @@ class WordItem(ResizableRectItem):
         if 0:
             # Text
             # note: text position is (0, 0) relative to its parent setPos(x0, y0)
-            self.text_item = QGraphicsSimpleTextItem(word.text, self)
+            self.text_item = QGraphicsSimpleTextItem(word.text_bytes, self)
             self._update_text_position()
         else:
             # disable text overlay
@@ -144,8 +144,8 @@ class WordItem(ResizableRectItem):
         return (
             f"WordItem(" +
             f"span_range={self.word.span_range!r}" +
-            f", id={self.word.id!r}" +
-            f", text={self.word.text!r}" +
+            f", id_bytes={self.word.id_bytes!r}" +
+            f", text_bytes={self.word.text_bytes!r}" +
             f", bbox={self.word.bbox!r}" +
             f", pos={pos!r}" +
             f")"
@@ -234,22 +234,22 @@ class WordItem(ResizableRectItem):
         )
         old_bbox = self.word.bbox
         if old_bbox != new_bbox:
-            if debug_word_id and debug_word_id == self.word.id:
-                print(f"word {self.word.id}: update_word_bbox: {old_bbox} -> {new_bbox}")
+            if debug_word_id and debug_word_id == self.word.id_bytes:
+                print(f"word {self.word.id_bytes}: update_word_bbox: {old_bbox} -> {new_bbox}")
             self.word.bbox = new_bbox
             self.word_changed_cb(
-                self.word.id,
+                self.word.id_bytes,
                 bbox=new_bbox,
                 span_start=self.word.span_range[0],
             )
         else:
-            if debug_word_id and debug_word_id == self.word.id:
-                print(f"word {self.word.id}: update_word_bbox: no change")
+            if debug_word_id and debug_word_id == self.word.id_bytes:
+                print(f"word {self.word.id_bytes}: update_word_bbox: no change")
 
     @print_exceptions
     def mouseDoubleClickEvent(self, event):
         if self.editor is None:
-            line_edit = QLineEdit(self.word.text)
+            line_edit = QLineEdit(self.word.text_bytes)
             line_edit.setFrame(False)
             line_edit.setFixedWidth(int(self.rect().width()))
             self.editor = QGraphicsProxyWidget(self)
@@ -263,14 +263,14 @@ class WordItem(ResizableRectItem):
     # ---------------- Helpers ----------------
     @print_exceptions
     def commit_text(self, new_text):
-        # print(f"commit_text: word.text {self.word.text!r} -> {new_text!r}")
-        self.word.text = new_text
+        # print(f"commit_text: word.text_bytes {self.word.text_bytes!r} -> {new_text!r}")
+        self.word.text_bytes = new_text
         if self.text_item:
             self.text_item.setText(new_text)
-        if debug_word_id and debug_word_id == self.word.id:
-            print(f"word {self.word.id}: commit_text: new_text={new_text!r}")
+        if debug_word_id and debug_word_id == self.word.id_bytes:
+            print(f"word {self.word.id_bytes}: commit_text: new_text={new_text!r}")
         self.word_changed_cb(
-            self.word.id, new_text,
+            self.word.id_bytes, new_text,
             bbox=self.word.bbox,
             span_start=self.word.span_range[0],
         )
@@ -286,7 +286,7 @@ class WordItem(ResizableRectItem):
                 line_edit.editingFinished.disconnect()
             except Exception:
                 pass
-            if new_text != self.word.text:
+            if new_text != self.word.text_bytes:
                 # Delay update until after editor fully closes
                 QTimer.singleShot(0, lambda: self.commit_text(new_text))
             # Remove proxy safely after current events
@@ -417,9 +417,9 @@ class PageView(QGraphicsView):
                 scale_x = rect.width() / cropped.width()
                 scale_y = rect.height() / cropped.height()
                 for word in parser.find_words():
-                    # expand word.id to avoid collisions
-                    # assume that word.id has the pattern "word_[0-9]+_[0-9]+"
-                    word.id = word.id[:5] + parse_id + word.id[4:]
+                    # expand word.id_bytes to avoid collisions
+                    # assume that word.id_bytes has the pattern "word_[0-9]+_[0-9]+"
+                    word.id_bytes = word.id_bytes[:5] + parse_id + word.id_bytes[4:]
                     (x0, y0, x1, y1) = word.bbox
                     # scale bbox from cropped-image space to scene/pixmap space
                     old_bbox = word.bbox
@@ -432,7 +432,7 @@ class PageView(QGraphicsView):
                     # FIXME update the range values in add_new_word_cb
                     word.byte_range = (0, 0)
                     word.title_value_range = (0, 0)
-                    word.id_value_range = (0, 0)
+                    word.id_bytes_value_range = (0, 0)
                     word.element_range = (0, 0)
                     word.span_range = (0, 0)
                     self.add_new_word_cb(word=word)
@@ -684,9 +684,9 @@ class HocrEditor(QMainWindow):
                 word_changed_cb=self.on_word_changed,
             )
             self.scene.addItem(item)
-            if not word.id in self.word_items:
-                self.word_items[word.id] = list()
-            self.word_items[word.id].append(item)
+            if not word.id_bytes in self.word_items:
+                self.word_items[word.id_bytes] = list()
+            self.word_items[word.id_bytes].append(item)
 
     @print_exceptions
     def refresh_page_view(self, force=False):
@@ -698,9 +698,9 @@ class HocrEditor(QMainWindow):
             return
         new_words = dict()
         for word in self.parser.find_words():
-            if not word.id in new_words:
-                new_words[word.id] = list()
-            new_words[word.id].append(word)
+            if not word.id_bytes in new_words:
+                new_words[word.id_bytes] = list()
+            new_words[word.id_bytes].append(word)
         # remove words
         num_words_removed = 0
         for wid in list(self.word_items.keys()):
@@ -726,19 +726,19 @@ class HocrEditor(QMainWindow):
                     if debug_word_id and debug_word_id == wid:
                         print(f"word {wid}: refresh_page_view: updating item {item}")
                     # update text and bbox
-                    if item.word.text != word.text:
+                    if item.word.text_bytes != word.text_bytes:
                         # FIXME this is rarely (never?) reached
-                        # because item.word.text was already updated somewhere else
+                        # because item.word.text_bytes was already updated somewhere else
                         if item.text_item:
                             if debug_word_id and debug_word_id == wid:
-                                print(f"word {wid}: refresh_page_view: updating item text: {item.text_item.text()!r} -> {word.text!r}")
-                            item.text_item.setText(word.text)
+                                print(f"word {wid}: refresh_page_view: updating item text: {item.text_item.text()!r} -> {word.text_bytes!r}")
+                            item.text_item.setText(word.text_bytes)
                         else:
                             if debug_word_id and debug_word_id == wid:
                                 print(f"word {wid}: refresh_page_view: not updating item text: no item.text_item")
                     else:
                         if debug_word_id and debug_word_id == wid:
-                            print(f"word {wid}: refresh_page_view: not updating item text: no change: {word.text!r}")
+                            print(f"word {wid}: refresh_page_view: not updating item text: no change: {word.text_bytes!r}")
                     if item.word.bbox != word.bbox:
                         # FIXME this is rarely (never?) reached
                         # because item.word.bbox was already updated somewhere else
@@ -800,7 +800,7 @@ class HocrEditor(QMainWindow):
     def find_word_item_by_word_id(self, word_id: str):
         for word_item in self.scene.items():
             if not isinstance(word_item, WordItem): continue
-            if word_item.word.id == word_id:
+            if word_item.word.id_bytes == word_id:
                 return word_item
 
     @print_exceptions
@@ -810,7 +810,7 @@ class HocrEditor(QMainWindow):
         # Convert byte offsets to character offsets
         start_char = len(self.parser.source_bytes[:word_item.word.byte_range[0]].decode(
             self.parser.source_encoding, errors="replace"))
-        end_char = start_char + len(word_item.word.text.decode(
+        end_char = start_char + len(word_item.word.text_bytes.decode(
             self.parser.source_encoding, errors="replace"))
 
         # Set selection
@@ -866,12 +866,12 @@ class HocrEditor(QMainWindow):
             return
 
         # 2. Get the corresponding WordItem
-        items = self.word_items.get(word.id)
+        items = self.word_items.get(word.id_bytes)
         if not items:
             return
 
         if len(items) > 1:
-            print(f"on_code_cursor_changed: FIXME collision in word id {word.id!r}")
+            print(f"on_code_cursor_changed: FIXME collision in word id {word.id_bytes!r}")
             for item in items:
                 print(f"  item {item}")
 
@@ -893,7 +893,7 @@ class HocrEditor(QMainWindow):
             x1, y1 = int(rect.x() + rect.width()), int(rect.y() + rect.height())
             new_id = b"word_" + get_random_bytestring()
         new_word = word or Word(
-            id=new_id,
+            id_bytes=new_id,
             text=b"",
             bbox=(x0, y0, x1, y1),
             x_wconf=None,
@@ -910,7 +910,7 @@ class HocrEditor(QMainWindow):
             # this is not done in refresh_page_view
             # word.byte_range = (0, 0)
             # word.title_value_range = (0, 0)
-            # word.id_value_range = (0, 0)
+            # word.id_bytes_value_range = (0, 0)
             # word.element_range = (0, 0)
             # word.span_range = (0, 0)
         # force update
@@ -928,8 +928,8 @@ class HocrEditor(QMainWindow):
         # TODO better
         for idx, line in enumerate(lines_in_source):
             for w in words:
-                if w.id in line:
-                    word_to_line[w.id] = idx
+                if w.id_bytes in line:
+                    word_to_line[w.id_bytes] = idx
 
         # TODO create a new line if the word does not fit into existing lines
         # TODO better. the new word should be inserted between old words in the same line
@@ -937,10 +937,10 @@ class HocrEditor(QMainWindow):
             line_words = lines[line_idx]
             if word_idx == 0:
                 # Insert before first word in line
-                insert_line = word_to_line.get(line_words[0].id, len(lines_in_source))
+                insert_line = word_to_line.get(line_words[0].id_bytes, len(lines_in_source))
             else:
                 # Insert after previous word
-                insert_line = word_to_line.get(line_words[word_idx - 1].id, len(lines_in_source))
+                insert_line = word_to_line.get(line_words[word_idx - 1].id_bytes, len(lines_in_source))
                 insert_line += 1
         else:
             insert_line = 0
@@ -948,9 +948,9 @@ class HocrEditor(QMainWindow):
         (x0, y0, x1, y1) = new_word.bbox
 
         new_span_line = (
-            b"      <span class='ocrx_word' id='" + new_word.id +
+            b"      <span class='ocrx_word' id='" + new_word.id_bytes +
             b"' title='bbox " + str(x0).encode("ascii") + b" " + str(y0).encode("ascii") + b" " +
-            str(x1).encode("ascii") + b" " + str(y1).encode("ascii") + b"'>" + new_word.text + b"</span>"
+            str(x1).encode("ascii") + b" " + str(y1).encode("ascii") + b"'>" + new_word.text_bytes + b"</span>"
         )
 
         lines_in_source.insert(insert_line, new_span_line)
@@ -1091,7 +1091,7 @@ def find_insert_line_and_index(new_bbox, lines, line_y_tolerance=50):
     line_index = len(lines)
     for i, line in enumerate(lines):
         line_y = sum(w.bbox[1] for w in line) / len(line)  # avg y
-        debug and print(f"line {i}: line_y", line_y, "text", repr(" ".join(w.text.decode("utf8") for w in line)))
+        debug and print(f"line {i}: line_y", line_y, "text", repr(" ".join(w.text_bytes.decode("utf8") for w in line)))
         if y0 < (line_y + line_y_tolerance):
             line_index = i
             break
@@ -1104,7 +1104,7 @@ def find_insert_line_and_index(new_bbox, lines, line_y_tolerance=50):
     line = lines[line_index]
     word_index = 0
     for i, w in enumerate(line):
-        debug and print(f"word {i}: word_x", w.bbox[0], "text", repr(w.text))
+        debug and print(f"word {i}: word_x", w.bbox[0], "text", repr(w.text_bytes))
         if x0 < w.bbox[0]:
             word_index = i
             break

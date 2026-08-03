@@ -15,8 +15,8 @@ Usage:
     src = Path("doc.hocr.html").read()
     hp = HocrParser(src)
     words = hp.find_words()  # list[Word]
-    hp.update(word_id=words[0].id, text=b"NEW")
-    hp.update(word_id=words[0].id, bbox=(10,20,100,60), x_wconf=95)
+    hp.update(word_id=words[0].id_bytes, text_bytes=b"NEW")
+    hp.update(word_id=words[0].id_bytes, bbox=(10,20,100,60), x_wconf=95)
     new_src = hp.source_bytes  # updated HTML/XML bytestring
 
 Notes:
@@ -173,23 +173,23 @@ def _format_title(
 
 @dataclass
 class Word:
-    id: bytes
-    text: bytes
+    id_bytes: bytes
+    text_bytes: bytes
     bbox: Optional[Tuple[int, int, int, int]]
     x_wconf: Optional[int]
     # raw title value (without surrounding quotes)
     title_value: Optional[bytes]
-    # precise byte ranges (start, end) in source_bytes
+    # precise byte ranges (start_byte, end_byte) in source_bytes
     byte_range: Tuple[int, int]
     title_value_range: Tuple[int, int]
     id_value_range: Tuple[int, int]
-    element_range: Tuple[int, int]
+    element_byte_range: Tuple[int, int]
     span_range: Tuple[int, int]
     # @print_exceptions
     # def __init__(self, *a, **k):
     #     super().__init__(*a, **k)
-    #     assert isinstance(self.id, bytes)
-    #     assert isinstance(self.text, bytes)
+    #     assert isinstance(self.id_bytes, bytes)
+    #     assert isinstance(self.text_bytes, bytes)
     #     assert isinstance(self.title_value, bytes)
 
 
@@ -242,15 +242,15 @@ class HocrParser:
             if not bbox: bbox=(0,0,0,0)
             # TODO dont use "class Word" here
             return Word(
-                id=attrs.get(b"id", (b"", (0,0)))[0],
-                text=b"",
+                id_bytes=attrs.get(b"id", (b"", (0,0)))[0],
+                text_bytes=b"",
                 bbox=bbox,
                 x_wconf=None,
                 title_value=title_val,
                 byte_range=(0,0),
                 title_value_range=title_range,
                 id_value_range=attrs.get(b"id",(b"",(0,0)))[1],
-                element_range=(element.start_byte, element.end_byte),
+                element_byte_range=(element.start_byte, element.end_byte),
                 span_range=(0,0),
             )
         else:  # xml / xhtml
@@ -271,15 +271,15 @@ class HocrParser:
             if not bbox: bbox=(0,0,0,0)
             # TODO dont use "class Word" here
             return Word(
-                id=attrs.get(b"id", (b"", (0,0)))[0],
-                text=b"",
+                id_bytes=attrs.get(b"id", (b"", (0,0)))[0],
+                text_bytes=b"",
                 bbox=bbox,
                 x_wconf=None,
                 title_value=title_val,
                 byte_range=(0,0),
                 title_value_range=title_range,
                 id_value_range=attrs.get(b"id",(None,(0,0)))[1],
-                element_range=(element.start_byte, element.end_byte),
+                element_byte_range=(element.start_byte, element.end_byte),
                 span_range=(0,0),
             )
 
@@ -291,14 +291,14 @@ class HocrParser:
     def update(self,
                word_id: str,
                *,
-               text: Optional[str] = None,
+               text_str: Optional[str] = None,
                bbox: Optional[Tuple[int, int, int, int]] = None,
                x_wconf: Optional[int] = None,
                new_id: Optional[str] = None) -> bool:
         """Apply one or more changes to a word by id using minimal diffs.
         Returns True if the word was found and something changed.
         """
-        # print(f"parser.update: text {text!r} bbox {bbox!r}")
+        # print(f"parser.update: text_str {text_str!r} bbox {bbox!r}")
         idx = self._index_words()
         node = idx.get(word_id)
         if not node:
@@ -307,11 +307,11 @@ class HocrParser:
         changed = False
 
         # 1) text
-        if text is not None and node.byte_range:
+        if text_str is not None and node.byte_range:
             if debug_word_id and debug_word_id == word_id:
                 old_text = self.source_bytes[node.byte_range[0]:node.byte_range[1]]
-                print(f"word {word_id}: update: update text: {old_text!r} -> {text!r}")
-            self._replace_range(node.byte_range, text)
+                print(f"word {word_id}: update: update text: {old_text!r} -> {text_str}")
+            self._replace_range(node.byte_range, text_str)
             changed = True
             # reindex to refresh ranges after _replace_range
             idx = self._index_words()
@@ -350,7 +350,7 @@ class HocrParser:
             self,
             span_start: int,
             *,
-            text: Optional[str] = None,
+            text_str: Optional[str] = None,
             bbox: Optional[Tuple[int, int, int, int]] = None,
             x_wconf: Optional[int] = None,
             new_id: Optional[str] = None
@@ -366,10 +366,10 @@ class HocrParser:
         changed = False
 
         # 1) text
-        if text is not None and word.byte_range:
+        if text_str is not None and word.byte_range:
             old_text = self.source_bytes[word.byte_range[0]:word.byte_range[1]]
-            print(f"word {word.id}: update_by_span: update text (by span): {old_text!r} -> {text!r}")
-            self._replace_range(word.byte_range, text)
+            print(f"word {word.id_bytes}: update_by_span: update text (by span): {old_text!r} -> {text_str!r}")
+            self._replace_range(word.byte_range, text_str)
             changed = True
             # re-find word after parse
             word = self.find_word_by_span_start(span_start) or word
@@ -384,19 +384,19 @@ class HocrParser:
                 kwargs["x_wconf"] = x_wconf
             new_title = _format_title(current_title, **kwargs)
             if current_title == new_title:
-                if debug_word_id and debug_word_id == word.id:
-                    print(f"word {word.id}: update_by_span: update title: no change in attribute @ {word.title_value_range}: title = {current_title!r}")
+                if debug_word_id and debug_word_id == word.id_bytes:
+                    print(f"word {word.id_bytes}: update_by_span: update title: no change in attribute @ {word.title_value_range}: title = {current_title!r}")
             else:
-                if debug_word_id and debug_word_id == word.id:
-                    print(f"word {word.id}: update_by_span: update title: attribute @ {word.title_value_range}: title = {current_title!r}")
-                    print(f"word {word.id}: update_by_span: update title: {current_title!r} -> {new_title!r}")
+                if debug_word_id and debug_word_id == word.id_bytes:
+                    print(f"word {word.id_bytes}: update_by_span: update title: attribute @ {word.title_value_range}: title = {current_title!r}")
+                    print(f"word {word.id_bytes}: update_by_span: update title: {current_title!r} -> {new_title!r}")
                 self._replace_range(word.title_value_range, new_title)
                 changed = True
                 word = self.find_word_by_span_start(span_start) or word
 
         # 3) id change
-        if new_id is not None and new_id != word.id:
-            self._replace_range(word.id_value_range, new_id)
+        if new_id is not None and new_id != word.id_bytes:
+            self._replace_range(word.id_bytes_value_range, new_id)
             changed = True
 
         return changed
@@ -449,12 +449,12 @@ class HocrParser:
                 if n.type == "element":
                     w = self._extract_word_html(n, sb)
                     if w:
-                        words[w.id] = w
+                        words[w.id_bytes] = w
             else:  # xml
                 if n.type == "element":
                     w = self._extract_word_xml(n, sb)
                     if w:
-                        words[w.id] = w
+                        words[w.id_bytes] = w
             # DFS
             stack.extend(n.children)
         self._cached_index = words
@@ -504,11 +504,11 @@ class HocrParser:
                 break
         end_tag = element.children[-1]
         if text_node is not None:
-            text = sb[text_node.start_byte:text_node.end_byte]
+            text_bytes = sb[text_node.start_byte:text_node.end_byte]
             byte_range = (text_node.start_byte, text_node.end_byte)
         else:
             # empty span: zero-length before end_tag
-            text = b""
+            text_bytes = b""
             byte_range = (end_tag.start_byte, end_tag.start_byte)
 
         bbox, xw = _parse_title(title_val)
@@ -517,15 +517,15 @@ class HocrParser:
             return None
         assert not (bbox is None), f"word {id_val!r}: failed to parse bbox from title {title_val!r}"
         return Word(
-            id=id_val,
-            text=text,
+            id_bytes=id_val,
+            text_bytes=text_bytes,
             bbox=bbox,
             x_wconf=xw,
             title_value=title_val,
             byte_range=byte_range,
             title_value_range=title_range,
             id_value_range=id_range,
-            element_range=(element.start_byte, element.end_byte),
+            element_byte_range=(element.start_byte, element.end_byte),
             span_range=(start_tag.start_byte, end_tag.end_byte),
         )
 
@@ -592,14 +592,14 @@ class HocrParser:
                 print(f"_extract_word_xml: attribute @ {vr}: {n} = {v!r}")
 
         # content text
-        text = b""
+        text_bytes = b""
         byte_range: Tuple[int, int] = (element.start_byte, element.start_byte)
         contents = [c for c in element.children if c.type == "content"]
         if contents:
             # find first CharData as text node
             for sub in contents[0].children:
                 if sub.type == "CharData":
-                    text = sb[sub.start_byte:sub.end_byte]
+                    text_bytes = sb[sub.start_byte:sub.end_byte]
                     byte_range = (sub.start_byte, sub.end_byte)
                     break
 
@@ -614,15 +614,15 @@ class HocrParser:
             return None
         assert not (bbox is None), f"word {id_val!r}: failed to parse bbox from title {title_val!r}"
         return Word(
-            id=id_val,
-            text=text,
+            id_bytes=id_val,
+            text_bytes=text_bytes,
             bbox=bbox,
             x_wconf=xw,
             title_value=title_val,
             byte_range=byte_range,
             title_value_range=title_range,
             id_value_range=id_range,
-            element_range=(element.start_byte, element.end_byte),
+            element_byte_range=(element.start_byte, element.end_byte),
             span_range=(st.start_byte, end_tag.end_byte),
         )
 
@@ -661,15 +661,15 @@ class HocrParser:
     def _replace_range(self, byte_range: Tuple[int, int], new_bytes: bytes):
         assert isinstance(new_bytes, bytes)
         assert isinstance(self.source_bytes, bytes)
-        start, end = byte_range
+        start_byte, end_byte = byte_range
         if debug:
-            old_bytes = self.source_bytes[start:end]
+            old_bytes = self.source_bytes[start_byte:end_byte]
             print(f"_replace_range: range {byte_range}: {old_bytes!r} -> {new_bytes!r}")
-        before = self.source_bytes[:start]
-        after = self.source_bytes[end:]
-        insert = new_bytes
-        self.source_bytes = before + insert + after
-        # Reparse and clear cache
+        self.source_bytes = (
+            self.source_bytes[:start_byte]
+            + new_bytes
+            + self.source_bytes[end_byte:]
+        )
         self.tree = self.parser.parse(self.source_bytes)
         self._cached_index = None
 
