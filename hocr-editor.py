@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QGraphicsRectItem, QGraphicsTextItem, QGraphicsItem,
     QGraphicsSimpleTextItem, QGraphicsProxyWidget,
     QWidget, QVBoxLayout, QLabel, QLineEdit, QSplitter,
+    QTabWidget,
     QGraphicsEllipseItem,
     QDockWidget,
     QFileDialog,
@@ -52,16 +53,19 @@ from PySide6.QtGui import (
 from PySide6.QtCore import QRectF, Qt, QPointF
 from PySide6.QtCore import (
     QTimer,
+    QSize,
     QSizeF,
     QTranslator,
     QLocale,
     QLibraryInfo,
     QEvent,
+    QSignalBlocker,
 )
 
 from hocr_parser import HocrParser, Word
 from hocr_parser import print_exceptions
 from hocr_parser import debug, debug_word_id
+from epub_fxl_parser import EpubFxlParser, EpubFxlWord
 from hocr_source_editor import HocrSourceEditor
 from resizable_rect_item import ResizableRectItem
 import git_helpers
@@ -505,6 +509,9 @@ class HocrEditor(QMainWindow):
         super().__init__()
         self.args = args
         self.hocr_file = args.hocr_file  # remember original filename
+
+        self._hocr_editor = self
+
         self.overlay_color = None
         if args.overlay_color:
             overlay_color = QColor(args.overlay_color)
@@ -512,10 +519,13 @@ class HocrEditor(QMainWindow):
                 self.overlay_color = overlay_color
             else:
                 print(f"Warning: invalid overlay color {args.overlay_color}")
+
         self.scene = QGraphicsScene()
+
         # TODO update self.modified from page_view and source_editor
         self.modified = False
         self.modified = True # always ask to save before exit # TODO remove
+
         # TODO rename to self.page_view
         self.view = PageView(
             self,
@@ -529,6 +539,44 @@ class HocrEditor(QMainWindow):
         # track chosen overlay color
         self.overlay_color = QColor("black")
 
+        # Prevent recursive updates between:
+        #   plain text editor
+        #   HOCR source editor
+        #   page view
+        # TODO reduce this to one or two variables
+        # one variable: self._updating_views
+        # two variables: self._updating_plain_text, self._updating_hocr_source
+        self._updating_views = False
+        self._updating_plain_text = False
+        self._updating_hocr_source = False
+
+        self._syncing_from_parser = False
+
+        # TODO reduce this to one variable?
+        # in hocr_source_editor.py we have this:
+        # self._updating = False  # avoid recursive updates
+
+        self._rebuild_timer = QTimer(self)
+        self._rebuild_timer.setSingleShot(True)
+        self._rebuild_timer.setInterval(2000)
+        self._rebuild_timer.timeout.connect(self._rebuild_hocr_model)
+
+        # plain text editor
+        # from plain_text_editor import PlainTextEditor
+        # self.plain_text_editor = PlainTextEditor()
+        self.plain_text_editor = QPlainTextEdit()
+        self.plain_text_editor.document().contentsChange.connect(
+            self.on_plain_text_contents_change
+        )
+        # self.plain_text_editor.document().contentsChange.connect(
+        #     self.on_plain_text_changed
+        # )
+        font = self.plain_text_editor.font()
+        if font.pointSizeF() > 0:
+            # increase the font size to 200%
+            font.setPointSizeF(font.pointSizeF() * 2.0)
+            self.plain_text_editor.setFont(font)
+
         # load words into scene
         # set self.parser
         self.words: list[Word] = []
@@ -537,20 +585,56 @@ class HocrEditor(QMainWindow):
         self.ocr_langs = "eng"
         self.load_hocr(self.hocr_file)
 
+        # no, this is redundant
+        # TODO where do we call parser._build_model()
+        # # Build the paragraph/line/word model used by
+        # # the plain-text projection.
+        # self.parser.rebuild_model()
+
+        # no, this requires self.bottom_tabs -> move down
+        # self.plain_text_editor.setPlainText(
+        #     self.parser.get_plain_text()
+        # )
+
         self.changed_word_id: Optional[bytes] = None
 
         # HOCR source editor dock
+        # TODO rename to self.hocr_source_editor
         self.source_editor = HocrSourceEditor(
             self.parser,
             update_page_cb=self.refresh_page_view,
             cursor_sync_cb=self.on_code_cursor_changed,
             parent=self,
         )
+        self.hocr_source_editor = self.source_editor
+
+        # TODO what
+        self.hocr_source_editor.editor.document().setDocumentMargin(4)
+
+        self.hocr_source_editor.editor.setLineWrapMode(QPlainTextEdit.NoWrap)
+
+        if debug:
+            print("HocrEditor.__init__: self.bottom_tabs = QTabWidget()")
+        self.bottom_tabs = QTabWidget()
+        self.bottom_tabs.addTab(
+            self.plain_text_editor,
+            "Text",
+        )
+        self.bottom_tabs.addTab(
+            self.source_editor,
+            "HOCR",
+        )
+        self.bottom_tabs.setCurrentWidget(
+            self.plain_text_editor
+        )
+        self.bottom_tabs.currentChanged.connect(
+            self.on_bottom_tab_changed
+        )
 
         # Splitter to control widths
         splitter = QSplitter(Qt.Vertical)
         splitter.addWidget(self.view)
-        splitter.addWidget(self.source_editor)
+        splitter.addWidget(self.bottom_tabs)
 
         container = QWidget()
         layout = QVBoxLayout(container)
@@ -577,6 +661,537 @@ class HocrEditor(QMainWindow):
         # TODO better
         for delay in [1, 10, 20, 50, 100, 200, 500]:
             QTimer.singleShot(delay, self.view.fit_width)  # fit width after layout
+
+        self._syncing_from_parser = True
+        if debug:
+            print("HocrEditor.__init__: calling self.plain_text_editor.setPlainText")
+        try:
+            self.plain_text_editor.setPlainText(
+                self.parser.get_plain_text()
+            )
+
+            if debug:
+                print("HocrEditor.__init__: calling self.hocr_source_editor.editor.setPlainText")
+            self.hocr_source_editor.editor.setPlainText(
+                self.parser.get_source_string()
+            )
+        finally:
+            self._syncing_from_parser = False
+
+    @print_exceptions
+    def on_bottom_tab_changed(self, index):
+        print("HocrEditor.on_bottom_tab_changed: current_widget = self.bottom_tabs.widget(index)")
+
+        current_widget = self.bottom_tabs.widget(index)
+
+        if current_widget is self.plain_text_editor:
+            self._updating_plain_text = True
+
+            try:
+                print("HocrEditor.on_bottom_tab_changed: calling self.plain_text_editor.setPlainText")
+                self.plain_text_editor.setPlainText(
+                    self.parser.get_plain_text()
+                )
+            finally:
+                self._updating_plain_text = False
+
+        elif current_widget is self.hocr_source_editor:
+            self._updating_hocr_source = True
+            self._updating_views = True
+
+            try:
+                print("HocrEditor.on_bottom_tab_changed: calling self.hocr_source_editor.editor.setPlainText")
+                self.hocr_source_editor.editor.setPlainText(
+                    self.parser.get_source_string()
+                )
+            finally:
+                self._updating_hocr_source = False
+                self._updating_views = False
+
+    @print_exceptions
+    def _rebuild_hocr_model(self):
+        print("HocrEditor._rebuild_hocr_model: calling self.parser.rebuild_model")
+        self.parser.rebuild_model()
+        self.reconcile_page_items()
+        self.refresh_plain_text_editor()
+        self.refresh_source_editor()
+
+    @print_exceptions
+    def on_plain_text_contents_change_zzzzzzzzz(
+        self,
+        position,
+        chars_removed,
+        chars_added,
+    ):
+        # if self._updating_views:
+        if self._updating_plain_text:
+            return
+        if self._syncing_from_parser:
+            return
+        inserted_text = ""
+        if chars_added:
+            cursor = self.plain_text_editor.textCursor()
+            # contentsChange is emitted after the document has changed,
+            # so reconstruct the inserted range.
+            print(f"line 640: setPosition {position} {position + chars_added} # chars_removed={chars_removed!r} # chars_added={chars_added!r}")
+            cursor.setPosition(position)
+            # FIXME QTextCursor::setPosition: Position '1' out of range
+            cursor.setPosition(
+                position + chars_added,
+                QTextCursor.MoveMode.KeepAnchor,
+            )
+            inserted_text = cursor.selectedText()
+            # Qt represents newline characters in QTextDocument
+            # as paragraph separators.
+            inserted_text = inserted_text.replace(
+                "\u2029",
+                "\n",
+            )
+        success = self.parser.apply_plain_text_edit(
+            position=position,
+            chars_removed=chars_removed,
+            inserted_text=inserted_text,
+        )
+        if success:
+            self.schedule_model_rebuild_check()
+        else:
+            self.schedule_full_rebuild()
+
+    @print_exceptions
+    def on_plain_text_contents_change_zzzzzzzzzz(
+        self,
+        position,
+        chars_removed,
+        chars_added,
+    ):
+        # if self._updating_views:
+        if self._updating_plain_text:
+            return
+        print(
+            f"contentsChange: "
+            f"position={position}, "
+            f"removed={chars_removed}, "
+            f"added={chars_added}"
+        )
+
+        # Process after Qt has finished modifying the document.
+        QTimer.singleShot(
+            0,
+            lambda: self.process_plain_text_change(
+                position,
+                chars_removed,
+                chars_added,
+            ),
+        )
+
+    @print_exceptions
+    def on_plain_text_contents_change_zzzzzzzz(
+        self,
+        position,
+        chars_removed,
+        chars_added,
+    ):
+        if self._updating_plain_text:
+            return
+
+        # Wait until Qt has finished applying the edit.
+        # Process after Qt has finished modifying the document.
+        QTimer.singleShot(
+            0,
+            lambda: self.process_plain_text_change(
+                position,
+                chars_removed,
+                chars_added,
+            ),
+        )
+
+    def on_plain_text_contents_change(
+        self,
+        position,
+        chars_removed,
+        chars_added,
+    ):
+        if self._updating_plain_text:
+            return
+        if self._syncing_from_parser:
+            return
+
+        old_text = self.parser.get_plain_text()
+
+        # IMPORTANT:
+        # old_text is the parser's current model,
+        # not the already-modified QTextDocument.
+
+        cursor = self.plain_text_editor.textCursor()
+
+        new_text = self.plain_text_editor.toPlainText()
+
+        # For the first working prototype:
+        if debug:
+            print("HocrEditor.on_plain_text_contents_change: calling self.parser.replace_plain_text")
+        self.parser.replace_plain_text(new_text)
+
+        if debug:
+            print("HocrEditor.on_plain_text_contents_change: calling self.refresh_from_parser")
+        self.refresh_from_parser()
+
+    @print_exceptions
+    def process_plain_text_change_zzzzzzzzz(
+        self,
+        position,
+        chars_removed,
+        chars_added,
+    ):
+        document = self.plain_text_editor.document()
+
+        # QTextDocument character count.
+        document_length = document.characterCount()
+
+        # debug
+        print(
+            f"process_plain_text_change:",
+            f"position={position}",
+            f"removed={chars_removed}",
+            f"added={chars_added}",
+            f"document_length={document_length}",
+        )
+
+        # Defensive clamping.
+        start_char = max(
+            0,
+            min(position, document_length),
+        )
+
+        end_char = max(
+            start_char,
+            min(
+                position + chars_added,
+                document_length,
+            ),
+        )
+
+        cursor = QTextCursor(document)
+
+        cursor.setPosition(
+            start_char,
+            QTextCursor.MoveMode.MoveAnchor,
+        )
+
+        cursor.setPosition(
+            end_char,
+            QTextCursor.MoveMode.KeepAnchor,
+        )
+
+        inserted_text = cursor.selectedText()
+
+        print(f"inserted_text: {inserted_text!r}")
+
+    @print_exceptions
+    def process_plain_text_change_zzzzzzzzz(
+        self,
+        position,
+        chars_removed,
+        chars_added,
+    ):
+        # if self._updating_views:
+        if self._updating_plain_text:
+            return
+
+        new_text = self.plain_text_editor.toPlainText()
+
+        inserted_text = new_text[
+            position:position + chars_added
+        ]
+
+        print(
+            "position:",
+            position,
+            "removed:",
+            chars_removed,
+            "added:",
+            chars_added,
+            "inserted:",
+            repr(inserted_text),
+            # inserted_text,
+        )
+
+    @print_exceptions
+    def process_plain_text_change(
+        self,
+        position,
+        chars_removed,
+        chars_added,
+    ):
+        if self._updating_plain_text:
+            return
+        if self._syncing_from_parser:
+            return
+
+        new_text = self.plain_text_editor.toPlainText()
+
+        print(
+            "plain text changed:",
+            repr(new_text),
+        )
+
+        try:
+            self.parser.replace_plain_text(
+                new_text,
+            )
+
+        except NotImplementedError as exc:
+            print(
+                "Plain-text edit not yet supported:",
+                exc,
+            )
+            return
+
+        # Update all views from parser.
+        self.refresh_from_parser()
+
+    @print_exceptions
+    def refresh_from_parser(self):
+        """
+        Synchronize the page view and the currently visible bottom view
+        from the parser.
+
+        The inactive bottom-tab is deliberately not updated here.
+        """
+
+        # The page view is always visible.
+        self.rebuild_page_view()
+
+        # print("HocrEditor.refresh_from_parser: current_widget = self.bottom_tabs.currentWidget()")
+
+        debug = 0
+        if debug:
+            print("\n========== refresh_from_parser ==========")
+            parser_source = self.parser.get_source_string()
+            print("PARSER source length:", len(parser_source))
+            print("PARSER source bytes length:", len(self.parser.source_bytes))
+            print("EDITOR source length BEFORE:", len(self.hocr_source_editor.editor.toPlainText()))
+            print("EDITOR == PARSER BEFORE:", self.hocr_source_editor.editor.toPlainText() == parser_source)
+
+        # Only refresh the currently visible bottom tab.
+        current_widget = self.bottom_tabs.currentWidget()
+
+        if debug:
+            print(
+                "current_widget:",
+                current_widget,
+            )
+
+        if current_widget is self.plain_text_editor:
+
+            editor = self.plain_text_editor
+
+            new_text = self.parser.get_plain_text()
+            # Avoid unnecessary document replacement.
+            if editor.toPlainText() == new_text:
+                return
+
+            self._updating_plain_text = True
+
+            if debug:
+                print("refreshing plain text editor: calling self.plain_text_editor.setPlainText")
+
+            # Save cursor state before replacing the document.
+            cursor = editor.textCursor()
+            cursor_position = cursor.position()
+            anchor_position = cursor.anchor()
+
+            # save scroll position
+            vertical_scroll_value = editor.verticalScrollBar().value()
+
+            try:
+                editor.setPlainText(new_text)
+            finally:
+                self._updating_plain_text = False
+
+            # Restore selection/cursor.
+            new_cursor = editor.textCursor()
+            max_position = len(new_text)
+            cursor_position = min(cursor_position, max_position)
+            anchor_position = min(anchor_position, max_position)
+            new_cursor.setPosition(anchor_position, QTextCursor.MoveMode.MoveAnchor)
+            new_cursor.setPosition(cursor_position, QTextCursor.MoveMode.KeepAnchor)
+            editor.setTextCursor(new_cursor)
+
+            # Restore scroll position.
+            editor.verticalScrollBar().setValue(vertical_scroll_value)
+
+        elif current_widget is self.hocr_source_editor:
+            self._updating_hocr_source = True
+            self._updating_views = True
+
+            if debug:
+                print("refreshing HOCR source editor: calling self.hocr_source_editor.editor.setPlainText")
+
+            try:
+                self.hocr_source_editor.editor.setPlainText(
+                    self.parser.get_source_string()
+                )
+            finally:
+                self._updating_hocr_source = False
+                self._updating_views = False
+
+            if debug:
+                # ---------------------------------------------------------
+                # Diagnostics AFTER update
+                # ---------------------------------------------------------
+                print("EDITOR source length AFTER:", len(self.hocr_source_editor.editor.toPlainText()))
+                print("EDITOR == PARSER AFTER:", self.hocr_source_editor.editor.toPlainText() == parser_source)
+                print("========================================\n")
+
+    @print_exceptions
+    def schedule_full_rebuild(self):
+        self._rebuild_timer.start()
+
+    @print_exceptions
+    def on_plain_text_changed(self):
+        # if self._updating_views:
+        if self._updating_plain_text:
+            return
+        if self._syncing_from_parser:
+            return
+
+        new_plain_text = (
+            self.plain_text_editor.toPlainText()
+        )
+
+        try:
+            # self._updating_views = True
+            self._updating_plain_text = True
+
+            new_source = (
+                self.parser.rebuild_hocr_from_plain_text(
+                    new_plain_text
+                )
+            )
+
+            self.parser.set_source_string(
+                new_source
+            )
+
+            print("HocrEditor.on_plain_text_changed: calling self.parser.rebuild_model")
+            self.parser.rebuild_model()
+
+            print("HocrEditor.on_plain_text_changed: calling self.hocr_source_editor.editor.setPlainText")
+            # Update source editor.
+            self.hocr_source_editor.editor.setPlainText(
+                self.parser.get_source_string()
+            )
+
+            # Rebuild graphics.
+            self.rebuild_page_view()
+
+        except Exception as exc:
+            print(
+                "Plain text update failed:",
+                exc,
+            )
+
+        finally:
+            # self._updating_views = False
+            self._updating_plain_text = False
+
+    @print_exceptions
+    def on_hocr_source_changed(self):
+        if self._updating_views:
+            return
+
+        new_source = (
+            self.hocr_source_editor.toPlainText()
+        )
+
+        try:
+            self._updating_views = True
+
+            self.parser.set_source_string(
+                new_source
+            )
+
+            print("HocrEditor.on_hocr_source_changed: calling self.parser.rebuild_model")
+            self.parser.rebuild_model()
+
+            # Update plain text.
+            print("HocrEditor.on_hocr_source_changed: calling self.plain_text_editor.setPlainText")
+            self.plain_text_editor.setPlainText(
+                self.parser.get_plain_text()
+            )
+
+            # Rebuild page.
+            self.rebuild_page_view()
+
+        except Exception as exc:
+            print(
+                "HOCR source update failed:",
+                exc,
+            )
+
+        finally:
+            self._updating_views = False
+
+    # FIXME refactor load_words and rebuild_page_view
+    @print_exceptions
+    def rebuild_page_view(self):
+        # Remove existing word items.
+        self.scene.clear()
+
+        # Rebuild from parser's current model.
+        for paragraph in self.parser.paragraphs:
+            for line in paragraph.lines:
+                for word in line.words:
+
+                    item = WordItem(
+                        word,
+                        self.on_word_selected,
+                        self.on_word_changed,
+                    )
+
+                    self.scene.addItem(
+                        item
+                    )
+
+        # Re-add page background if you have one.
+        self.load_page_background()
+
+    def source_byte_to_qt_position(self, byte_offset: int) -> int:
+        """
+        Convert a UTF-8 byte offset in parser.source_bytes into
+        a QTextCursor character position.
+
+        QTextCursor positions are character offsets in the QString,
+        whereas Tree-sitter ranges are byte offsets in UTF-8.
+        """
+
+        source_bytes = self.parser.source_bytes
+
+        # Clamp to valid range.
+        byte_offset = max(
+            0,
+            min(
+                byte_offset,
+                len(source_bytes),
+            ),
+        )
+
+        # Decode only the prefix.
+        #
+        # This gives the number of Unicode characters before the
+        # requested UTF-8 byte offset.
+        #
+        # errors="replace" guarantees that the result is always
+        # decodable, although normally the offset should be on a
+        # UTF-8 character boundary.
+        prefix = source_bytes[
+            :byte_offset
+        ].decode(
+            self.parser.source_encoding,
+            errors="replace",
+        )
+
+        return len(prefix)
 
     @print_exceptions
     def _create_menubar(self):
@@ -625,8 +1240,13 @@ class HocrEditor(QMainWindow):
         # so different line endings dont show up in "git diff"
         source_bytes = source_bytes.replace(b"\r\n", b"\n")
 
+        if b'<meta name="generator" content="hocr-to-epub-fxl" />' in source_bytes:
+            # FIXME convert epub-fxl to hocr = inverse of hocr-to-epub-fxl
+            return self.load_epub_fxl_bytes(source_bytes)
+
         # get tesseract languages parameter value from hocr file
         # TODO https://github.com/tesseract-ocr/tesseract/issues/4455
+        # TODO https://github.com/tesseract-ocr/tesseract/issues/4591
         # FIXME use tree-sitter to parse the lang attributes
         ocr_par_lang_regex = rb"<p class='ocr_par' id='[^']+' lang='([^']+)'"
         ocrx_word_lang_regex = rb"<span class='ocrx_word' id='[^']+' title='[^']+' lang='([^']+)'"
@@ -648,17 +1268,52 @@ class HocrEditor(QMainWindow):
         print(f"load_hocr: found ocr_langs {self.ocr_langs!r}")
 
         self.parser = HocrParser(source_bytes)
+
+        if debug:
+            print("HocrEditor.load_hocr: calling self.parser.find_words")
         self.words = self.parser.find_words()
         # print("self.words", self.words)
 
+        # # Build the paragraph/line/word model used by
+        # # the plain-text projection.
+        # self.parser.rebuild_model()
+
+        # # Populate plain-text editor
+        # self._updating_plain_text = True
+        # try:
+        #     self.plain_text_editor.setPlainText(
+        #         self.parser.get_plain_text()
+        #     )
+        # finally:
+        #     self._updating_plain_text = False
+
+        # # Populate source editor
+        # self._updating_hocr_source = True
+        # try:
+        #     self.hocr_source_editor.editor.setPlainText(
+        #         self.parser.get_source_string()
+        #     )
+        # finally:
+        #     self._updating_hocr_source = False
+
+        if debug:
+            print("HocrEditor.load_hocr: calling self.load_words")
         self.load_words()
 
         # QTimer.singleShot(0, self.view.fit_width)  # fit width after layout
 
     @print_exceptions
-    def load_words(self):
-        """Populate the scene with WordItems from parser"""
+    def load_epub_fxl_bytes(self, source_bytes):
+        # TODO get tesseract languages parameter value from hocr file
+        # TODO https://github.com/tesseract-ocr/tesseract/issues/4455
 
+        self.parser = EpubFxlParser(source_bytes)
+        self.words = self.parser.find_words()
+        # print("self.words", self.words)
+
+        self.load_words()
+
+    def load_page_background(self):
         # --- add page images ---
         for page in self.parser.find_pages():
             # print("page", page)
@@ -676,6 +1331,12 @@ class HocrEditor(QMainWindow):
                 self.scene.addPixmap(pixmap).setZValue(-1)
             # FIXME support hocr files with multiple pages
             break # stop after first page
+
+    # FIXME refactor load_words and rebuild_page_view
+    @print_exceptions
+    def load_words(self):
+        """Populate the scene with WordItems from parser"""
+        self.load_page_background()
 
         for word in self.parser.find_words():
             item = WordItem(
@@ -807,14 +1468,93 @@ class HocrEditor(QMainWindow):
     def on_word_selected(self, word_item: WordItem):
         if self.source_editor.editor.hasFocus():
             return
-        # Convert byte offsets to character offsets
-        start_char = len(self.parser.source_bytes[:word_item.word.byte_range[0]].decode(
-            self.parser.source_encoding, errors="replace"))
-        end_char = start_char + len(word_item.word.text_bytes.decode(
-            self.parser.source_encoding, errors="replace"))
+
+        debug = False
+        # debug = True
+
+        if debug:
+            word = word_item.word
+            print("\n========== on_word_selected ==========")
+            print("id(word):", id(word))
+            print("word.id_bytes:", word.id_bytes)
+            print("word.text_bytes:", repr(word.text_bytes))
+            print("word.byte_range:", word.byte_range)
+            print("id(self.parser.source_bytes):", id(self.parser.source_bytes))
+            print("len(self.parser.source_bytes):", len(self.parser.source_bytes))
+            editor_text = self.hocr_source_editor.editor.toPlainText()
+            print("len(editor_text):", len(editor_text))
+            print("self.parser.get_source_string() == editor_text:", self.parser.get_source_string() == editor_text)
+            # Show the text around the parser's expected range.
+            start_byte, end_byte = word.byte_range
+            print("self.parser.source_bytes[start_byte:end_byte]:", repr(self.parser.source_bytes[start_byte:end_byte]))
+            # Show the same range in the Qt editor.
+            print("editor_text[start_byte:end_byte]:", repr(editor_text[start_byte:end_byte]))
+            print("word._debug_source_id:", getattr(word, "_debug_source_id", None))
+            print("word._debug_source_len:", getattr(word, "_debug_source_len", None))
+            print("word._debug_source_slice:", getattr(word, "_debug_source_slice", None))
+
+        if 1:
+            word = word_item.word
+            word_id = word.id_bytes
+            print("received word:")
+            print("  word.id_bytes:", word.id_bytes)
+            print("  word.text_bytes:", repr(word.text_bytes))
+            print("  word.byte_range:", word.byte_range)
+            # IMPORTANT:
+            # Look up the word again in the CURRENT parser model.
+            current_word = self.parser.get_word_by_id(word_id)
+            if current_word is None:
+                print(f"ERROR: word {word_id!r} not found in current parser model")
+                return
+            print("current parser word:")
+            print("  current_word.id_bytes:", current_word.id_bytes)
+            print("  current_word.text_bytes:", repr(current_word.text_bytes))
+            print("  current_word.byte_range:", current_word.byte_range)
+            start_byte, end_byte = current_word.byte_range
+            editor_text = self.hocr_source_editor.editor.toPlainText()
+            print("len(self.parser.get_source_string()):", len(self.parser.get_source_string()))
+            print("len(editor_text):", len(editor_text))
+            print("self.parser.get_source_string() == editor_text:", self.parser.get_source_string() == editor_text)
+            print("self.parser.source_bytes[start_byte:end_byte]:", self.parser.source_bytes[start_byte:end_byte])
+            start_char = self.source_byte_offset_to_char_offset(start_byte)
+            end_char = self.source_byte_offset_to_char_offset(end_byte)
+            print("editor_text[start_char:end_char]:", repr(editor_text[start_char:end_char]))
+
+            word = current_word
+
+        if 0:
+            # wrong?
+            # Convert byte offsets to character offsets
+            start_char = len(self.parser.source_bytes[:word_item.word.byte_range[0]].decode(
+                self.parser.source_encoding, errors="replace"))
+            end_char = start_char + len(word_item.word.text_bytes.decode(
+                self.parser.source_encoding, errors="replace"))
+        elif 1:
+            start_byte, end_byte = word.byte_range
+            start_char = self.source_byte_offset_to_char_offset(start_byte)
+            end_char = self.source_byte_offset_to_char_offset(end_byte)
+            if debug:
+                print(
+                    "WORD RANGE:",
+                    repr(word.text_bytes),
+                    "byte_range =",
+                    (start_byte, end_byte),
+                    "char_range =",
+                    (start_char, end_char),
+                )
+
+        if debug:
+            selected_text = self.hocr_source_editor.editor.toPlainText()[start_char:end_char]
+            print(
+                "SELECT RANGE:",
+                f"start_char={start_char}",
+                f"end_char={end_char}",
+                f"selected_text={selected_text!r}",
+            )
 
         # Set selection
         cursor = self.source_editor.editor.textCursor()
+        print(f"line 1020: setPosition {start_char} {end_char}")
         cursor.setPosition(start_char)
         cursor.setPosition(end_char, QTextCursor.KeepAnchor)
         self.source_editor.editor.setTextCursor(cursor)
@@ -823,6 +1563,99 @@ class HocrEditor(QMainWindow):
         self.source_editor.editor.centerCursor()
 
         self.source_editor.editor.setFocus()
+
+    @print_exceptions
+    def source_byte_offset_to_char_offset(
+        self,
+        byte_offset: int,
+    ) -> int:
+        """
+        Convert a byte offset from parser.source_bytes
+        to a character offset used by QTextCursor.
+
+        tree-sitter / HocrParser:
+            UTF-8 byte offsets
+
+        QTextCursor:
+            QString character offsets
+        """
+
+        source_bytes = self.parser.source_bytes
+
+        # Clamp to valid byte range.
+        byte_offset = max(
+            0,
+            min(
+                byte_offset,
+                len(source_bytes),
+            ),
+        )
+
+        # Decode the prefix up to the requested byte offset.
+        prefix = source_bytes[:byte_offset].decode(
+            self.parser.source_encoding,
+            errors="replace",
+        )
+
+        return len(prefix)
+
+    @print_exceptions
+    def on_word_selected_zzzzzzzzzz(self, word):
+        """
+        Select the corresponding word text in the HOCR source editor.
+        """
+
+        if word is None:
+            return
+
+        # The parser uses UTF-8 byte offsets.
+        # QTextCursor uses QString character offsets.
+        start_pos = self.source_byte_to_qt_position(
+            # FIXME AttributeError: 'WordItem' object has no attribute 'byte_range'
+            word.byte_range[0]
+        )
+
+        end_pos = self.source_byte_to_qt_position(
+            word.byte_range[1]
+        )
+
+        document = self.hocr_source_editor.editor.document()
+
+        # Defensive bounds checking.
+        start_pos = max(
+            0,
+            min(
+                start_pos,
+                document.characterCount() - 1,
+            ),
+        )
+
+        end_pos = max(
+            start_pos,
+            min(
+                end_pos,
+                document.characterCount() - 1,
+            ),
+        )
+
+        cursor = self.hocr_source_editor.editor.textCursor()
+
+        cursor.setPosition(
+            start_pos
+        )
+
+        cursor.setPosition(
+            end_pos,
+            QTextCursor.MoveMode.KeepAnchor,
+        )
+
+        self.hocr_source_editor.editor.setTextCursor(
+            cursor
+        )
+
+        self.hocr_source_editor.editor.ensureCursorVisible()
+
+        self.hocr_source_editor.editor.setFocus()
 
     @print_exceptions
     def on_word_changed(
@@ -892,6 +1725,7 @@ class HocrEditor(QMainWindow):
             x0, y0 = int(rect.x()), int(rect.y())
             x1, y1 = int(rect.x() + rect.width()), int(rect.y() + rect.height())
             new_id = b"word_" + get_random_bytestring()
+        # FIXME EpubFxlWord
         new_word = word or Word(
             id_bytes=new_id,
             text=b"",
@@ -965,6 +1799,7 @@ class HocrEditor(QMainWindow):
             b"\n".join(lines_in_source[:insert_line]) +
             new_span_line[:-len("</span>")+1]
         ).decode(self.parser.source_encoding, errors="replace"))
+        print(f"line 1170: setPosition {pos}")
         cursor.setPosition(pos)
         self.source_editor.editor.setTextCursor(cursor)
         self.source_editor.editor.setFocus()
@@ -1051,6 +1886,26 @@ class HocrEditor(QMainWindow):
         if filename:
             self.hocr_file = filename
             self.save_hocr()
+
+    @print_exceptions
+    def on_plain_text_edit(
+        self,
+        position: int,
+        chars_removed: int,
+        inserted_text: str,
+    ):
+        span = self.parser.span_at(position)
+        if span is None:
+            return
+        if (
+            span.kind == "word"
+            and chars_removed > 0
+        ):
+            self.handle_word_edit(
+                position,
+                chars_removed,
+                inserted_text,
+            )
 
 
 def group_words_into_lines(words, y_threshold=10):

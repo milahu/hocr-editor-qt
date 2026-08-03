@@ -16,11 +16,13 @@ from PySide6.QtGui import (
 from PySide6.QtCore import (
     Qt,
     QTimer,
+    QSize,
 )
 from typing import (
     Any,
 )
 from hocr_parser import HocrParser, Word
+from hocr_parser import print_exceptions
 
 
 # Operation types
@@ -110,7 +112,9 @@ class HocrSourceEditor(QWidget):
 
         layout = QVBoxLayout(self)
 
-        self.editor = HocrSourceEditorTextEdit(parser, update_page_cb, cursor_sync_cb)
+        self._hocr_editor = parent._hocr_editor
+
+        self.editor = HocrSourceEditorTextEdit(parser, update_page_cb, cursor_sync_cb, self)
         layout.addWidget(self.editor)
 
         # Button bar
@@ -159,6 +163,7 @@ class HocrSourceEditorTextEdit(QPlainTextEdit):
         ):
         super().__init__(parent)
         self.parser = parser
+        self._hocr_editor = parent._hocr_editor
         self.update_page_cb = update_page_cb  # callback to refresh page view
         self.setPlainText(self.parser.get_source_string())
         self.textChanged.connect(self.on_text_changed)
@@ -448,6 +453,8 @@ class HocrSourceEditorTextEdit(QPlainTextEdit):
     # ---- sync from page ----
     def on_text_changed(self):
         if self._updating:
+            return
+        if self._hocr_editor._syncing_from_parser:
             return
         self._updating = True
         try:
