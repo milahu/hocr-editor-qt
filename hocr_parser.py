@@ -1205,140 +1205,13 @@ class HocrParser:
                 return word
         return None
 
-    # Incremental:
-    @print_exceptions
-    def apply_plain_text_edit_zzzzzzz(
-        self,
-        position: int,
-        chars_removed: int,
-        inserted_text: str,
-    ) -> bool:
-        """
-        Apply an incremental edit from the plain-text editor.
-
-        Currently supported:
-
-            - editing inside a single existing word
-
-        Not yet supported:
-
-            - deleting a space
-            - inserting a space
-            - deleting a newline
-            - inserting a newline
-
-        Those operations will be implemented as merge/split operations.
-        """
-
-        old_end = (
-            position
-            + chars_removed
-        )
-
-        affected = self.spans_overlapping(
-            position,
-            old_end,
-        )
-
-        # --------------------------------------------------
-        # Special case: insertion
-        # --------------------------------------------------
-
-        if chars_removed == 0:
-
-            span = self.span_at(position)
-
-            if (
-                span is not None
-                and span.kind == "word"
-                and span.word is not None
-                and span.start_char < position < span.end_char
-            ):
-                word = span.word
-
-                old_text = word.text_bytes.decode(
-                    self.source_encoding,
-                    errors="replace",
-                )
-
-                local_position = (
-                    position
-                    - span.start_char
-                )
-
-                new_text = (
-                    old_text[:local_position]
-                    + inserted_text
-                    + old_text[local_position:]
-                )
-
-                return self.update_word_text_incremental(
-                    word,
-                    new_text,
-                )
-
-            # Structural insertion.
-            return False
-
-        # --------------------------------------------------
-        # Replacement/deletion inside one word
-        # --------------------------------------------------
-
-        if len(affected) == 1:
-
-            span = affected[0]
-
-            if (
-                span.kind == "word"
-                and span.word is not None
-            ):
-                word = span.word
-
-                old_text = word.text_bytes.decode(
-                    self.source_encoding,
-                    errors="replace",
-                )
-
-                local_start = (
-                    position
-                    - span.start_char
-                )
-
-                local_end = (
-                    local_start
-                    + chars_removed
-                )
-
-                # Make sure the edit really is inside
-                # this word.
-                if (
-                    local_start >= 0
-                    and local_end <= len(old_text)
-                ):
-                    new_text = (
-                        old_text[:local_start]
-                        + inserted_text
-                        + old_text[local_end:]
-                    )
-
-                    return self.update_word_text_incremental(
-                        word,
-                        new_text,
-                    )
-
-        # --------------------------------------------------
-        # Structural edit not implemented yet
-        # --------------------------------------------------
-
-        return False
-
     @print_exceptions
     def apply_plain_text_edit(
         self,
-        position: int,
-        chars_removed: int,
-        inserted_text: str,
-    ) -> bool:
+            position: int,
+            chars_removed: int,
+            inserted_text: str,
+        ) -> bool:
         """
         Apply a Qt plain-text editor edit incrementally.
 
@@ -1422,21 +1295,6 @@ class HocrParser:
 
     # Recovery / consistency:
     @print_exceptions
-    def rebuild_model_zzzzzzzz(self):
-        """
-        Full consistency rebuild.
-
-        Used:
-        - after 2 seconds of inactivity
-        - after an incremental operation fails
-        - after loading a file
-        """
-        # no, the parse tree should always be good
-        # self._reparse_tree()
-        self._build_model()
-
-    # Recovery / consistency:
-    @print_exceptions
     def rebuild_model(self):
         """
         Full consistency rebuild.
@@ -1450,38 +1308,6 @@ class HocrParser:
         if debug:
             print(f"HocrParser.rebuild_model: calling self._build_model")
         self._build_model()
-
-    @print_exceptions
-    def _build_model_zzzzzzzzzzzz(self):
-        self.paragraphs.clear()
-        self.words_by_id.clear()
-        self.lines_by_id.clear()
-        self.paragraphs_by_id.clear()
-
-        # build paragraphs / lines / words
-        parsed_paragraphs = self.find_document_structure()
-        for parsed_paragraph in parsed_paragraphs:
-            paragraph = HocrParagraph(
-                id_bytes=parsed_paragraph.id_bytes,
-                element_byte_range=parsed_paragraph.element_byte_range,
-            )
-            self.paragraphs.append(paragraph)
-            assert isinstance(paragraph.id_bytes, bytes)
-            self.paragraphs_by_id[paragraph.id_bytes] = paragraph
-            for parsed_line in parsed_paragraph.lines:
-                line = HocrLine(
-                    id_bytes=parsed_line.id_bytes,
-                    words=parsed_line.words,
-                    element_byte_range=parsed_line.element_byte_range,
-                )
-                paragraph.lines.append(line)
-                assert isinstance(line.id_bytes, bytes)
-                self.lines_by_id[line.id_bytes] = line
-                assert isinstance(word.id_bytes, bytes)
-                for word in line.words:
-                    self.words_by_id[word.id_bytes] = word
-
-        self._build_text_index()
 
     @print_exceptions
     def _build_model(self):
@@ -1647,466 +1473,6 @@ class HocrParser:
             self.source_encoding,
             errors="replace",
         )
-
-    @print_exceptions
-    def find_document_structure_zzzzzzzz(self) -> list[ParsedParagraph]:
-        """
-        Build the logical HOCR document structure:
-
-            ParsedParagraph
-                -> ParsedLine
-                    -> Word
-
-        Expected HOCR structure:
-
-            <p class="ocr_par" ...>
-                <span class="ocr_line" ...>
-                    <span class="ocrx_word" ...>Hello</span>
-                    <span class="ocrx_word" ...>world</span>
-                </span>
-            </p>
-
-        The returned Word objects come from _index_words(), so the same Word
-        instances are shared by the parser's word index and the document model.
-        """
-
-        words_by_span = {
-            word.span_range[0]: word
-            for word in self._index_words().values()
-            if word.span_range
-        }
-
-        paragraphs: list[ParsedParagraph] = []
-
-        root = self.tree.root_node
-
-        def node_class(node) -> bytes:
-            """
-            Return the value of the HTML/XML 'class' attribute.
-            """
-            sb = self.source_bytes
-
-            if self._lang == "html":
-                start_tag = next(
-                    (
-                        child
-                        for child in node.children
-                        if child.type == "start_tag"
-                    ),
-                    None,
-                )
-
-                if start_tag is None:
-                    return b""
-
-                for child in start_tag.children:
-                    if child.type != "attribute":
-                        continue
-
-                    name, value, _ = self._read_html_attribute(child, sb)
-
-                    if name and name.lower() == b"class":
-                        return value
-
-            else:
-                # XML / XHTML
-                start_tag = next(
-                    (
-                        child
-                        for child in node.children
-                        if child.type == "STag"
-                    ),
-                    None,
-                )
-
-                if start_tag is None:
-                    return b""
-
-                for child in start_tag.children:
-                    if child.type != "Attribute":
-                        continue
-
-                    name, value, _ = self._read_xml_attribute(child, sb)
-
-                    if name and name.lower() == b"class":
-                        return value
-
-            return b""
-
-        def node_id(node) -> str:
-            """
-            Return the element's id attribute as a Python string.
-            """
-            sb = self.source_bytes
-
-            if self._lang == "html":
-                start_tag = next(
-                    (
-                        child
-                        for child in node.children
-                        if child.type == "start_tag"
-                    ),
-                    None,
-                )
-
-                if start_tag is None:
-                    return ""
-
-                for child in start_tag.children:
-                    if child.type != "attribute":
-                        continue
-
-                    name, value, _ = self._read_html_attribute(child, sb)
-
-                    if name and name.lower() == b"id":
-                        return value.decode(
-                            self.source_encoding,
-                            errors="replace",
-                        )
-
-            else:
-                start_tag = next(
-                    (
-                        child
-                        for child in node.children
-                        if child.type == "STag"
-                    ),
-                    None,
-                )
-
-                if start_tag is None:
-                    return ""
-
-                for child in start_tag.children:
-                    if child.type != "Attribute":
-                        continue
-
-                    name, value, _ = self._read_xml_attribute(child, sb)
-
-                    if name and name.lower() == b"id":
-                        return value.decode(
-                            self.source_encoding,
-                            errors="replace",
-                        )
-
-            return ""
-
-        def element_children(node):
-            """
-            Return direct child elements.
-
-            We intentionally only inspect direct children here. This preserves
-            the HOCR hierarchy instead of accidentally associating a word from
-            a nested line/paragraph with the wrong parent.
-            """
-            return [
-                child
-                for child in node.children
-                if child.type == "element"
-            ]
-
-        def find_direct_words(line_node) -> list[Word]:
-            """
-            Find direct ocrx_word children of an ocr_line.
-            """
-            result = []
-
-            for child in element_children(line_node):
-                classes = node_class(child)
-
-                if not _class_has(classes, b"ocrx_word"):
-                    continue
-
-                word = words_by_span.get(child.start_byte)
-
-                if word is not None:
-                    result.append(word)
-
-            return result
-
-        def find_direct_lines(paragraph_node) -> list[ParsedLine]:
-            """
-            Find direct ocr_line children of an ocr_par.
-            """
-            result = []
-
-            for child in element_children(paragraph_node):
-                classes = node_class(child)
-
-                if not _class_has(classes, b"ocr_line"):
-                    continue
-
-                words = find_direct_words(child)
-
-                result.append(
-                    ParsedLine(
-                        id_bytes=node_id(child),
-                        words=words,
-                        element_byte_range=(
-                            child.start_byte,
-                            child.end_byte,
-                        ),
-                    )
-                )
-
-            return result
-
-        # Walk the document and find ocr_par elements.
-        stack = [root]
-
-        while stack:
-            node = stack.pop()
-
-            if node.type == "element":
-                classes = node_class(node)
-
-                if _class_has(classes, b"ocr_par"):
-                    lines = find_direct_lines(node)
-
-                    paragraphs.append(
-                        ParsedParagraph(
-                            id_bytes=node_id(node),
-                            lines=lines,
-                            element_byte_range=(
-                                node.start_byte,
-                                node.end_byte,
-                            ),
-                        )
-                    )
-
-                    # Do not recursively process nested paragraphs.
-                    continue
-
-            # DFS
-            stack.extend(reversed(node.children))
-
-        return paragraphs
-
-    @print_exceptions
-    def find_document_structure_zzzzzzz(self) -> list[ParsedParagraph]:
-        """
-        Build the document hierarchy:
-
-            paragraphs
-                lines
-                    words
-
-        This is the slow, non-incremental implementation.
-
-        The structure is inferred from the hOCR classes:
-            ocr_par
-            ocr_line
-            ocrx_word
-
-        The returned Word objects contain the original byte ranges.
-        """
-
-        sb = self.source_bytes
-
-        def get_attr(element, attr_name: bytes):
-            """
-            Return:
-                (value, value_range)
-
-            for an HTML/XML attribute.
-            """
-            attrs = {}
-
-            if self._lang == "html":
-                start_tag = next(
-                    (
-                        c for c in element.children
-                        if c.type == "start_tag"
-                    ),
-                    None,
-                )
-
-                if not start_tag:
-                    return b"", (0, 0)
-
-                for child in start_tag.children:
-                    if child.type == "attribute":
-                        name, value, value_range = \
-                            self._read_html_attribute(child, sb)
-
-                        if name:
-                            attrs[name.lower()] = (
-                                value,
-                                value_range,
-                            )
-
-            else:
-                start_tag = next(
-                    (
-                        c for c in element.children
-                        if c.type == "STag"
-                    ),
-                    None,
-                )
-
-                if not start_tag:
-                    return b"", (0, 0)
-
-                for child in start_tag.children:
-                    if child.type == "Attribute":
-                        name, value, value_range = \
-                            self._read_xml_attribute(child, sb)
-
-                        if name:
-                            attrs[name.lower()] = (
-                                value,
-                                value_range,
-                            )
-
-            return attrs.get(
-                attr_name.lower(),
-                (b"", (0, 0)),
-            )
-
-        def get_class(element) -> bytes:
-            value, _ = get_attr(element, b"class")
-            return value
-
-        def get_id(element) -> bytes:
-            value, _ = get_attr(element, b"id")
-            return value
-
-        def iter_elements(node):
-            """
-            Depth-first traversal of element nodes.
-            """
-            for child in node.children:
-                if child.type == "element":
-                    yield child
-                    yield from iter_elements(child)
-
-        def find_child_elements(element):
-            return [
-                child
-                for child in element.children
-                if child.type == "element"
-            ]
-
-        # ------------------------------------------------------------------
-        # First collect all words.
-        #
-        # We use the existing parser implementation because it already
-        # handles HTML/XML differences and byte ranges.
-        # ------------------------------------------------------------------
-
-        all_words = self.find_words()
-
-        # Important:
-        # A document can theoretically contain duplicate IDs.
-        # Therefore index by span start, not only by ID.
-        words_by_span_start = {
-            word.span_range[0]: word
-            for word in all_words
-        }
-
-        # ------------------------------------------------------------------
-        # Find paragraphs.
-        # ------------------------------------------------------------------
-
-        paragraphs = []
-
-        root = self.tree.root_node
-
-        for element in iter_elements(root):
-
-            classes = get_class(element)
-
-            if not _class_has(classes, b"ocr_par"):
-                continue
-
-            paragraph_id = get_id(element).decode(
-                self.source_encoding,
-                errors="replace",
-            )
-
-            parsed_lines = []
-
-            # --------------------------------------------------------------
-            # Find direct line elements inside this paragraph.
-            # --------------------------------------------------------------
-
-            for line_element in find_child_elements(element):
-
-                line_classes = get_class(line_element)
-
-                if not _class_has(line_classes, b"ocr_line"):
-                    continue
-
-                line_id = get_id(line_element).decode(
-                    self.source_encoding,
-                    errors="replace",
-                )
-
-                line_words = []
-
-                # ----------------------------------------------------------
-                # Find word elements inside this line.
-                #
-                # We recursively search because some hOCR documents may
-                # contain inline markup around the word text.
-                # ----------------------------------------------------------
-
-                for candidate in iter_elements(line_element):
-
-                    candidate_classes = get_class(candidate)
-
-                    if not _class_has(
-                        candidate_classes,
-                        b"ocrx_word",
-                    ):
-                        continue
-
-                    word = words_by_span_start.get(
-                        candidate.start_byte
-                    )
-
-                    if word is not None:
-                        line_words.append(word)
-
-                # Remove accidental duplicates while preserving order.
-                seen = set()
-                unique_words = []
-
-                for word in sorted(
-                    line_words,
-                    key=lambda w: w.span_range[0],
-                ):
-                    key = word.span_range[0]
-
-                    if key in seen:
-                        continue
-
-                    seen.add(key)
-                    unique_words.append(word)
-
-                parsed_lines.append(
-                    ParsedLine(
-                        id_bytes=line_id,
-                        words=unique_words,
-                        element_byte_range=(
-                            line_element.start_byte,
-                            line_element.end_byte,
-                        ),
-                    )
-                )
-
-            paragraphs.append(
-                ParsedParagraph(
-                    id_bytes=paragraph_id,
-                    lines=parsed_lines,
-                    element_byte_range=(
-                        element.start_byte,
-                        element.end_byte,
-                    ),
-                )
-            )
-
-        return paragraphs
 
     @print_exceptions
     def find_document_structure(self) -> list[ParsedParagraph]:
@@ -2323,10 +1689,10 @@ class HocrParser:
 
     @print_exceptions
     def _get_element_attribute(
-        self,
-        element,
-        attribute_name: bytes,
-    ) -> Optional[bytes]:
+            self,
+            element,
+            attribute_name: bytes,
+        ) -> Optional[bytes]:
         """
         Return an element attribute value without surrounding quotes.
         """
@@ -2472,45 +1838,6 @@ class HocrParser:
                 parts.append("\n\n")
         return "".join(parts)
 
-    # # Incrementally update source:
-    # @print_exceptions
-    # def update_word_text(self, word, new_text):
-    #     raise NotImplementedError
-
-    # @print_exceptions
-    # def merge_words(self, left, right):
-    #     raise NotImplementedError
-
-    # @print_exceptions
-    # def split_word(self, word, offset):
-    #     raise NotImplementedError
-
-    # @print_exceptions
-    # def merge_lines(self, left, right):
-    #     raise NotImplementedError
-
-    # @print_exceptions
-    # def split_line(self, line, position):
-    #     raise NotImplementedError
-
-    # @print_exceptions
-    # def merge_paragraphs(self, left, right):
-    #     raise NotImplementedError
-
-    # @print_exceptions
-    # def split_paragraph(self, paragraph, position):
-    #     raise NotImplementedError
-
-    @print_exceptions
-    def span_at_zzzzzzzz(self, position: int) -> Optional[TextSpan]:
-        """
-        find the span affected by a Qt contentsChange
-        """
-        for span in self.text_spans:
-            if span.start_char <= position < span.end_char:
-                return span
-        return None
-
     @print_exceptions
     def span_at(self, position: int) -> Optional[TextSpan]:
         """
@@ -2533,26 +1860,11 @@ class HocrParser:
         return None
 
     @print_exceptions
-    def spans_overlapping_zzzzzzzz(
-        self,
-        start_char: int,
-        end_char: int,
-    ) -> list[TextSpan]:
-        """
-        find the span affected by a Qt contentsChange
-        """
-        return [
-            span
-            for span in self.text_spans
-            if span.start_char < end_char and span.end_char > start_char
-        ]
-
-    @print_exceptions
     def spans_overlapping(
-        self,
-        start_char: int,
-        end_char: int,
-    ) -> list[TextSpan]:
+            self,
+            start_char: int,
+            end_char: int,
+        ) -> list[TextSpan]:
         """
         Return all spans intersecting [start_char, end_char).
 
@@ -2573,10 +1885,10 @@ class HocrParser:
 
     @print_exceptions
     def _shift_spans_after(
-        self,
-        position: int,
-        delta: int,
-    ):
+            self,
+            position: int,
+            delta: int,
+        ):
         """
         incremental position shifting
         """
@@ -2592,10 +1904,10 @@ class HocrParser:
     @print_exceptions
     def _replace_text_spans(
         self,
-        start_char: int,
-        end_char: int,
-        new_spans: list[TextSpan],
-    ):
+            start_char: int,
+            end_char: int,
+            new_spans: list[TextSpan],
+        ):
         """
         Replace spans covering [start_char, end_char).
         """
@@ -2617,10 +1929,10 @@ class HocrParser:
 
     @print_exceptions
     def _replace_source_range(
-        self,
-        byte_range: tuple[int, int],
-        new_bytes: bytes,
-    ):
+            self,
+            byte_range: tuple[int, int],
+            new_bytes: bytes,
+        ):
         start_byte, end_byte = byte_range
 
         old_bytes = self.source_bytes[start_byte:end_byte]
@@ -2643,188 +1955,6 @@ class HocrParser:
         self._cached_index = None
 
         return delta
-
-    @print_exceptions
-    def replace_plain_text_zzzzzzz(self, new_text: str) -> bool:
-        """
-        Replace the logical text of the HOCR document.
-
-        Prototype implementation:
-        - paragraphs are separated by \\n\\n
-        - lines are separated by \\n
-        - words are separated by spaces
-        - existing word elements are reused where possible
-        - text changes are written into existing word elements
-        - words that cannot be mapped to existing elements are inserted
-        using the existing HOCR word structure
-
-        This is intentionally a slow implementation.
-        """
-
-        if not self.paragraphs:
-            self.rebuild_model()
-
-        # TODO? convert str to bytes for update_by_span / _replace_range
-        # new_text = new_text.encode(self.source_encoding)
-
-        # Normalize Qt's text representation.
-        new_text = new_text.replace("\r\n", "\n")
-        new_text = new_text.replace("\r", "\n")
-
-        # Parse the plain-text structure.
-        new_paragraphs = []
-
-        for paragraph_text in new_text.split("\n\n"):
-            lines = []
-
-            for line_text in paragraph_text.split("\n"):
-                # For now, a space separates words.
-                words = line_text.split(" ")
-
-                # Avoid creating empty words from repeated spaces.
-                words = [
-                    word
-                    for word in words
-                    if word
-                ]
-
-                lines.append(words)
-
-            # Don't create completely empty paragraphs.
-            if lines:
-                new_paragraphs.append(lines)
-
-        # Flatten existing words.
-        old_words = []
-
-        for paragraph in self.paragraphs:
-            for line in paragraph.lines:
-                old_words.extend(line.words)
-
-        # Flatten new words.
-        new_words = []
-
-        for paragraph in new_paragraphs:
-            for line in paragraph:
-                new_words.extend(line)
-
-        # Update existing words in-place.
-        common_count = min(
-            len(old_words),
-            len(new_words),
-        )
-
-        for index in range(common_count):
-            old_word = old_words[index]
-            new_word = new_words[index]
-
-            if old_word.text_bytes.decode(
-                self.source_encoding,
-                errors="replace",
-            ) != new_word:
-
-                self.update_by_span(
-                    old_word.span_range[0],
-                    text_bytes=new_word,
-                )
-
-        # If the number of words changed, we currently need
-        # to rebuild the complete HOCR structure.
-        #
-        # This is deliberately simple for the prototype.
-        if len(old_words) != len(new_words):
-            self._rebuild_words_from_plain_text(
-                new_paragraphs,
-            )
-
-        # Rebuild parser/model state.
-        self.rebuild_model()
-
-        return True
-
-    @print_exceptions
-    def replace_plain_text_zzzzzzzz(self, new_text: str) -> bool:
-        """
-        Replace the logical text representation of the document.
-
-        This is the slow prototype implementation.
-
-        The plain-text structure is:
-
-            paragraphs separated by \\n\\n
-            lines separated by \\n
-            words separated by spaces
-
-        Existing word elements are reused in document order.
-
-        The number of words may change:
-        - deleting spaces merges words
-        - inserting spaces splits words
-        - deleting words removes word elements
-        - inserting words creates new word elements
-
-        The current implementation rebuilds the textual HOCR structure
-        after the edit. It does not yet perform minimal byte-level diffs.
-        """
-
-        new_text = new_text.replace("\r\n", "\n")
-        new_text = new_text.replace("\r", "\n")
-
-        # ---------------------------------------------------------
-        # Parse new plain-text structure
-        # ---------------------------------------------------------
-
-        new_structure = []
-
-        for paragraph_text in new_text.split("\n\n"):
-            paragraph_lines = []
-
-            for line_text in paragraph_text.split("\n"):
-                # A normal space separates words.
-                #
-                # split() also handles multiple spaces, which means
-                # multiple spaces currently collapse to one.
-                words = line_text.split()
-
-                paragraph_lines.append(words)
-
-            new_structure.append(paragraph_lines)
-
-        # ---------------------------------------------------------
-        # Flatten old words
-        # ---------------------------------------------------------
-
-        old_words = []
-
-        for paragraph in self.paragraphs:
-            for line in paragraph.lines:
-                old_words.extend(line.words)
-
-        # ---------------------------------------------------------
-        # Flatten new words
-        # ---------------------------------------------------------
-
-        new_words = []
-
-        for paragraph in new_structure:
-            for line in paragraph:
-                new_words.extend(line)
-
-        # ---------------------------------------------------------
-        # Build a new source document
-        #
-        # We reuse existing word elements where possible.
-        # ---------------------------------------------------------
-
-        self._replace_document_text_structure(
-            new_structure,
-            old_words,
-        )
-
-        # Rebuild everything.
-        self.rebuild_model()
-
-        return True
 
     @print_exceptions
     def replace_plain_text(self, new_text: str) -> bool:
@@ -4219,9 +3349,9 @@ class HocrParser:
         return False
 
     def _get_spans_around_position(
-        self,
-        position: int,
-    ):
+            self,
+            position: int,
+        ):
         previous = None
         current = None
         next_span = None
@@ -4253,10 +3383,10 @@ class HocrParser:
 
     @print_exceptions
     def _replace_document_text_structure(
-        self,
-        new_structure,
-        old_words,
-    ):
+            self,
+            new_structure,
+            old_words,
+        ):
         """
         Rebuild the textual structure of the HOCR document.
 
@@ -4322,10 +3452,10 @@ class HocrParser:
 
     @print_exceptions
     def _replace_word_element_text(
-        self,
-        word: Word,
-        new_text: str,
-    ) -> bytes:
+            self,
+            word: Word,
+            new_text: str,
+        ) -> bytes:
         """
         Replace only the textual contents of an existing word element.
         """
@@ -4371,10 +3501,10 @@ class HocrParser:
 
     @print_exceptions
     def _create_word_from_template(
-        self,
-        template_word: Word,
-        text_str: str,
-    ) -> bytes:
+            self,
+            template_word: Word,
+            text_str: str,
+        ) -> bytes:
         """
         Create a new word element using an existing word as template.
 
@@ -4432,13 +3562,11 @@ class HocrParser:
 
         return element
 
-
-
     @print_exceptions
     def _rebuild_words_from_plain_text(
-        self,
-        new_paragraphs,
-    ):
+            self,
+            new_paragraphs,
+        ):
         """
         Slow prototype implementation.
 
@@ -4501,10 +3629,10 @@ class HocrParser:
 
     @print_exceptions
     def _replace_word_text_bytes(
-        self,
-        word: Word,
-        new_text: bytes,
-    ) -> None:
+            self,
+            word: Word,
+            new_text: bytes,
+        ) -> None:
         start_byte, end_byte = word.byte_range
 
         self._replace_range(
@@ -4565,10 +3693,10 @@ class HocrParser:
 
     @print_exceptions
     def _replace_word_text(
-        self,
-        word: Word,
-        new_text: str,
-    ) -> bool:
+            self,
+            word: Word,
+            new_text: str,
+        ) -> bool:
         """
         Replace the textual content of an existing Word.
 
@@ -4595,9 +3723,9 @@ class HocrParser:
 
     @print_exceptions
     def _find_word_by_span(
-        self,
-        span: TextSpan,
-    ) -> Optional[Word]:
+            self,
+            span: TextSpan,
+        ) -> Optional[Word]:
         if span.kind != "word":
             return None
 
@@ -4605,9 +3733,9 @@ class HocrParser:
 
     @print_exceptions
     def _find_word_at_text_position(
-        self,
-        position: int,
-    ) -> Optional[Word]:
+            self,
+            position: int,
+        ) -> Optional[Word]:
         span = self.span_at(position)
 
         if span is None:
@@ -4620,10 +3748,10 @@ class HocrParser:
 
     @print_exceptions
     def _get_plain_text_slice(
-        self,
-        start_char: int,
-        end_char: int,
-    ) -> str:
+            self,
+            start_char: int,
+            end_char: int,
+        ) -> str:
         """
         Return text from the current plain-text model.
 
@@ -4636,10 +3764,10 @@ class HocrParser:
     @print_exceptions
     def _apply_word_text_edit(
         self,
-        position: int,
-        chars_removed: int,
-        inserted_text: str,
-    ) -> bool:
+            position: int,
+            chars_removed: int,
+            inserted_text: str,
+        ) -> bool:
         """
         Apply an edit entirely contained inside one word.
 
@@ -4733,10 +3861,10 @@ class HocrParser:
 
     @print_exceptions
     def _merge_words(
-        self,
-        left: Word,
-        right: Word,
-    ) -> bool:
+            self,
+            left: Word,
+            right: Word,
+        ) -> bool:
         """
         Merge two adjacent HOCR words.
 
@@ -4808,10 +3936,10 @@ class HocrParser:
     @print_exceptions
     def _apply_word_merge(
         self,
-        position: int,
-        chars_removed: int,
-        inserted_text: str,
-    ) -> bool:
+            position: int,
+            chars_removed: int,
+            inserted_text: str,
+        ) -> bool:
         """
         Handle deletion of the single space between two words.
         """
@@ -4843,9 +3971,9 @@ class HocrParser:
 
     @print_exceptions
     def _generate_split_word_id(
-        self,
-        word: Word,
-    ) -> str:
+            self,
+            word: Word,
+        ) -> str:
         base_id = word.id_bytes.decode(
             "ascii",
             errors="replace",
@@ -4871,10 +3999,10 @@ class HocrParser:
 
     @print_exceptions
     def _split_word(
-        self,
-        word: Word,
-        offset: int,
-    ) -> bool:
+            self,
+            word: Word,
+            offset: int,
+        ) -> bool:
         """
         Split one Word into two words.
 
@@ -5002,10 +4130,10 @@ class HocrParser:
     @print_exceptions
     def _apply_word_split(
         self,
-        position: int,
-        chars_removed: int,
-        inserted_text: str,
-    ) -> bool:
+            position: int,
+            chars_removed: int,
+            inserted_text: str,
+        ) -> bool:
         """
         Handle insertion of a single space inside a word.
         """
@@ -5038,10 +4166,10 @@ class HocrParser:
 
     @print_exceptions
     def update_word_text_incremental(
-        self,
-        word: Word,
-        new_text: str,
-    ) -> bool:
+            self,
+            word: Word,
+            new_text: str,
+        ) -> bool:
         """
         Incrementally update the text of one existing Word.
 
@@ -5201,17 +4329,12 @@ class HocrParser:
 
         return True
 
-
-
-
-
-
     @print_exceptions
     def _replace_element_range(
-        self,
-        element_byte_range: tuple[int, int],
-        new_bytes: bytes,
-    ):
+            self,
+            element_byte_range: tuple[int, int],
+            new_bytes: bytes,
+        ):
         """
         Replace a complete element in source_bytes and rebuild the parser tree.
 
@@ -5393,10 +4516,10 @@ class HocrParser:
 
     @print_exceptions
     def merge_words(
-        self,
-        left: Word,
-        right: Word,
-    ) -> bool:
+            self,
+            left: Word,
+            right: Word,
+        ) -> bool:
         """
         Merge two adjacent words.
 
@@ -5451,19 +4574,10 @@ class HocrParser:
         # Calculate merged bbox
         # ---------------------------------------------------------
 
-        bbox = None
-
-        if left.bbox and right.bbox:
-            bbox = (
-                min(left.bbox[0], right.bbox[0]),
-                min(left.bbox[1], right.bbox[1]),
-                max(left.bbox[2], right.bbox[2]),
-                max(left.bbox[3], right.bbox[3]),
-            )
-        elif left.bbox:
-            bbox = left.bbox
-        elif right.bbox:
-            bbox = right.bbox
+        bbox = self._union_bbox(
+            left.bbox,
+            right.bbox,
+        )
 
         # ---------------------------------------------------------
         # Build new left word element
@@ -5616,53 +4730,11 @@ class HocrParser:
         # Split bbox
         # ---------------------------------------------------------
 
-        left_bbox = word.bbox
-        right_bbox = word.bbox
-
-        if word.bbox:
-            x1, y1, x2, y2 = word.bbox
-
-            split_x = (
-                x1
-                + int(
-                    (x2 - x1)
-                    * offset
-                    / len(text_str)
-                )
-            )
-
-            # horizontal margin
-            # after the left word
-            # before the right word
-            margin_x = round((y2 - y1) * 0.6 * 0.5 * 0.5)
-
-            left_x2 = split_x - margin_x
-            right_x1 = split_x + margin_x
-
-            left_width = left_x2 - x1
-            right_width = x2 - right_x1
-
-            # enforce a minimum width
-            min_width = 5
-            left_width = max(left_width, min_width)
-            right_width = max(right_width, min_width)
-
-            left_x2 = x1 + left_width
-            right_x1 = x2 - right_width
-
-            left_bbox = (
-                x1,
-                y1,
-                left_x2,
-                y2,
-            )
-
-            right_bbox = (
-                right_x1,
-                y1,
-                x2,
-                y2,
-            )
+        left_bbox, right_bbox = self._split_word_bbox(
+            word.bbox,
+            offset,
+            len(text_str),
+        )
 
         # ---------------------------------------------------------
         # Create first word
@@ -5804,6 +4876,94 @@ class HocrParser:
         return True
 
     @print_exceptions
+    def _split_word_bbox(
+            self,
+            bbox: Optional[Tuple[int, int, int, int]],
+            offset: int,
+            text_length: int,
+        ) -> Tuple[
+            Optional[Tuple[int, int, int, int]],
+            Optional[Tuple[int, int, int, int]],
+        ]:
+        """
+        Calculate left/right bboxes for a word split.
+
+        The split position is estimated proportionally from the
+        character position.
+
+        A small horizontal gap is left between the resulting
+        word boxes.
+        """
+
+        if bbox is None:
+            return None, None
+
+        if text_length <= 0:
+            return bbox, bbox
+
+        x1, y1, x2, y2 = bbox
+
+        split_x = (
+            x1
+            + int(
+                (x2 - x1)
+                * offset
+                / text_length
+            )
+        )
+
+        # Approximate visual gap between the two resulting words.
+        margin_x = round(
+            (y2 - y1)
+            * 0.6
+            * 0.5
+            * 0.5
+        )
+
+        left_x2 = split_x - margin_x
+        right_x1 = split_x + margin_x
+
+        # Keep both boxes minimally usable.
+        min_width = 5
+
+        left_x2 = max(
+            left_x2,
+            x1 + min_width,
+        )
+
+        right_x1 = min(
+            right_x1,
+            x2 - min_width,
+        )
+
+        # Clamp to original bbox.
+        left_x2 = min(
+            left_x2,
+            x2,
+        )
+
+        right_x1 = max(
+            right_x1,
+            x1,
+        )
+
+        left_bbox = (
+            x1,
+            y1,
+            left_x2,
+            y2,
+        )
+
+        right_bbox = (
+            right_x1,
+            y1,
+            x2,
+            y2,
+        )
+
+        return left_bbox, right_bbox
+
+    @print_exceptions
     def merge_lines(
             self,
             left: HocrLine,
@@ -5830,24 +4990,38 @@ class HocrParser:
         if parent is None:
             return False
 
-        left_element = self.source_bytes[
-            left.element_byte_range[0]:
-            left.element_byte_range[1]
-        ]
-
-        right_element = self.source_bytes[
-            right.element_byte_range[0]:
-            right.element_byte_range[1]
-        ]
+        left_element = self.source_bytes[left.element_byte_range[0]:left.element_byte_range[1]]
+        right_element = self.source_bytes[right.element_byte_range[0]:right.element_byte_range[1]]
 
         # Remove the outer line tags from the right line.
-        right_content = self._extract_element_inner_html(
-            right_element,
-            b"span",
-        )
+        right_content = self._extract_element_inner_html(right_element, b"span")
+
+        opening_end = left_element.find(b">")
+
+        if opening_end < 0:
+            return False
+
+        left_opening_tag = left_element[:opening_end + 1]
+
+        # Line bboxes become invalid after merging.
+        # line bboxes are optional, so we simply remove them
+        left_opening_tag = self._remove_bbox_from_element(left_opening_tag)
+
+        left_content = left_element[opening_end + 1:]
+
+        # Remove the original closing </span>.
+        close_pos = left_content.rfind(b"</span>")
+
+        if close_pos < 0:
+            return False
+
+        left_content = left_content[:close_pos]
+
+        right_content = self._extract_element_inner_html(right_element, b"span")
 
         merged_element = (
-            left_element[:-len(b"</span>")].rstrip()
+            left_opening_tag
+            + left_content.rstrip()
             + right_content
             + b"</span>"
         )
@@ -5873,10 +5047,10 @@ class HocrParser:
 
     @print_exceptions
     def _extract_element_inner_html(
-        self,
-        element: bytes,
-        tag_name: bytes,
-    ) -> bytes:
+            self,
+            element: bytes,
+            tag_name: bytes,
+        ) -> bytes:
         """
         Extract the content between <tag ...> and </tag>.
         """
@@ -6073,6 +5247,8 @@ class HocrParser:
 
         opening_tag = line_element[:open_end + 1]
 
+        first_opening_tag = opening_tag
+
         # ---------------------------------------------------------
         # Find the original closing tag.
         #
@@ -6088,9 +5264,7 @@ class HocrParser:
         close_start = line_element.rfind(b"</span>")
 
         if close_start < 0:
-            print(
-                "split_line: could not find line closing tag"
-            )
+            print("split_line: could not find line closing tag")
             return False
 
         closing_tag = line_element[close_start:]
@@ -6111,9 +5285,7 @@ class HocrParser:
 
         old_id = line.id_bytes
 
-        id_pos = opening_tag.find(
-            old_id
-        )
+        id_pos = opening_tag.find(old_id)
 
         if id_pos < 0:
             print(
@@ -6123,14 +5295,15 @@ class HocrParser:
             return False
 
         second_opening_tag = (
-            opening_tag[
-                :id_pos
-            ]
+            opening_tag[:id_pos]
             + new_line_id
-            + opening_tag[
-                id_pos + len(old_id):
-            ]
+            + opening_tag[id_pos + len(old_id):]
         )
+
+        # Line bboxes become invalid after splitting.
+        # line bboxes are optional, so we simply remove them
+        first_opening_tag = self._remove_bbox_from_element(first_opening_tag)
+        second_opening_tag = self._remove_bbox_from_element(second_opening_tag)
 
         # ---------------------------------------------------------
         # Preserve the original source bytes around the split.
@@ -6177,7 +5350,7 @@ class HocrParser:
         # ---------------------------------------------------------
 
         first_line = (
-            opening_tag
+            first_opening_tag
             + left_content
             + b"\n     "
             + closing_tag
@@ -6260,32 +5433,40 @@ class HocrParser:
         if not found:
             return False
 
-        left_element = self.source_bytes[
-            left.element_byte_range[0]:
-            left.element_byte_range[1]
-        ]
+        left_element = self.source_bytes[left.element_byte_range[0]:left.element_byte_range[1]]
+        right_element = self.source_bytes[right.element_byte_range[0]:right.element_byte_range[1]]
 
-        right_element = self.source_bytes[
-            right.element_byte_range[0]:
-            right.element_byte_range[1]
-        ]
+        # ---------------------------------------------------------
+        # Extract and update left opening tag.
+        #
+        # The left paragraph survives the merge, so its ID remains.
+        # The bbox is removed because the merged paragraph has
+        # different geometry.
+        # ---------------------------------------------------------
 
-        left_inner = self._extract_element_inner_html(
-            left_element,
-            b"p",
-        )
+        left_open_end = left_element.find(b">")
 
-        right_inner = self._extract_element_inner_html(
-            right_element,
-            b"p",
-        )
+        if left_open_end < 0:
+            return False
+
+        left_opening_tag = left_element[:left_open_end + 1]
+
+        # Paragraph bboxes become invalid after merging.
+        # paragraph bboxes are optional, so we simply remove them
+        left_opening_tag = self._remove_bbox_from_element(left_opening_tag)
+
+        # ---------------------------------------------------------
+        # Extract paragraph contents.
+        # ---------------------------------------------------------
+
+        left_inner = self._extract_element_inner_html(left_element, b"p")
+        right_inner = self._extract_element_inner_html(right_element, b"p")
 
         merged = (
-            left_element[:left_element.find(b">") + 1]
+            left_opening_tag
             + left_inner.rstrip()
             + right_inner
             + b"</p>"
-            # + b"\n    </p>"
         )
 
         self._replace_element_range(
@@ -6360,10 +5541,7 @@ class HocrParser:
         paragraph_start = paragraph.element_byte_range[0]
         paragraph_end = paragraph.element_byte_range[1]
 
-        paragraph_element = source[
-            paragraph_start:
-            paragraph_end
-        ]
+        paragraph_element = source[paragraph_start:paragraph_end]
 
         # ---------------------------------------------------------
         # Find paragraph opening tag
@@ -6380,10 +5558,7 @@ class HocrParser:
         content_start = paragraph_start + open_end + 1
 
         if debug:
-            print(
-                "split_paragraph: opening_tag:",
-                opening_tag,
-            )
+            print("split_paragraph: opening_tag:", opening_tag)
 
         # ---------------------------------------------------------
         # Find original paragraph closing tag
@@ -6433,26 +5608,14 @@ class HocrParser:
         if debug:
             print(
                 "split_paragraph: first_content_range:",
-                (
-                    first_content_start,
-                    first_content_end,
-                ),
+                (first_content_start, first_content_end),
             )
             print(
                 "split_paragraph: second_content_range:",
-                (
-                    second_content_start,
-                    second_content_end,
-                ),
+                ( second_content_start, second_content_end),
             )
-            print(
-                "split_paragraph: first_content:",
-                first_content,
-            )
-            print(
-                "split_paragraph: second_content:",
-                second_content,
-            )
+            print("split_paragraph: first_content:", first_content)
+            print("split_paragraph: second_content:", second_content)
 
         # ---------------------------------------------------------
         # Generate second paragraph ID
@@ -6471,20 +5634,17 @@ class HocrParser:
             second_opening_tag = (
                 opening_tag[:id_pos]
                 + new_id
-                + opening_tag[
-                    id_pos + len(old_id):
-                ]
+                + opening_tag[id_pos + len(old_id):]
             )
 
         if debug:
-            print(
-                "split_paragraph: first_opening_tag:",
-                first_opening_tag,
-            )
-            print(
-                "split_paragraph: second_opening_tag:",
-                second_opening_tag,
-            )
+            print("split_paragraph: first_opening_tag:", first_opening_tag)
+            print("split_paragraph: second_opening_tag:", second_opening_tag)
+
+        # Paragraph bboxes become invalid after splitting.
+        # paragraph bboxes are optional, so we simply remove them
+        first_opening_tag = self._remove_bbox_from_element(first_opening_tag)
+        second_opening_tag = self._remove_bbox_from_element(second_opening_tag)
 
         # ---------------------------------------------------------
         # Build first paragraph
@@ -6539,38 +5699,217 @@ class HocrParser:
         )
 
         if debug:
-            print(
-                "split_paragraph: first_paragraph:",
-                first_paragraph,
-            )
-            print(
-                "split_paragraph: second_paragraph:",
-                second_paragraph,
-            )
-            print(
-                "split_paragraph: new_element:",
-                new_element,
-            )
+            print("split_paragraph: first_paragraph:", first_paragraph)
+            print("split_paragraph: second_paragraph:", second_paragraph)
+            print("split_paragraph: new_element:", new_element)
 
         # ---------------------------------------------------------
         # Replace original paragraph
         # ---------------------------------------------------------
 
-        self._replace_element_range(
-            paragraph.element_byte_range,
-            new_element,
-        )
+        self._replace_element_range(paragraph.element_byte_range, new_element)
 
         self.rebuild_model()
 
         return True
 
+    @print_exceptions
     def get_word_by_id(self, word_id: bytes) -> Optional[Word]:
         for paragraph in self.paragraphs:
             for line in paragraph.lines:
                 for word in line.words:
                     if word.id_bytes == word_id:
                         return word
+        return None
+
+    @print_exceptions
+    def _remove_bbox_from_title(
+            self,
+            title_value: str,
+        ) -> str:
+        """
+        Remove the bbox field from an hOCR title attribute.
+
+        Preserves all other title fields and their order.
+
+        Examples:
+
+            "bbox 1 2 3 4"
+                -> ""
+
+            "bbox 1 2 3 4; baseline 0.1 2"
+                -> "baseline 0.1 2"
+
+            "baseline 0.1 2; bbox 1 2 3 4; x_size 20"
+                -> "baseline 0.1 2; x_size 20"
+        """
+
+        parts = [
+            part.strip()
+            for part in title_value.split(";")
+        ]
+
+        parts = [
+            part
+            for part in parts
+            if part
+            and not part.startswith("bbox ")
+        ]
+
+        return "; ".join(parts)
+
+    @print_exceptions
+    def _remove_bbox_from_element(
+            self,
+            element: bytes,
+        ) -> bytes:
+        """
+        Remove the bbox field from an element's title attribute.
+
+        If the title contains other fields, only bbox is removed.
+
+        If bbox is the only title field, the complete title attribute
+        is removed.
+
+        Works with both single and double quoted title attributes.
+        """
+
+        # ---------------------------------------------------------
+        # Find title attribute.
+        #
+        # We intentionally operate on raw bytes so that all
+        # unrelated source formatting remains untouched.
+        # ---------------------------------------------------------
+
+        title_match = re.search(
+            rb"\btitle\s*=\s*(['\"])(.*?)\1",
+            element,
+            flags=re.DOTALL,
+        )
+
+        if title_match is None:
+            return element
+
+        quote = title_match.group(1)
+        old_title = title_match.group(2)
+
+        try:
+            old_title_str = old_title.decode(
+                self.source_encoding,
+                errors="replace",
+            )
+        except Exception:
+            return element
+
+        new_title_str = self._remove_bbox_from_title(
+            old_title_str
+        )
+
+        # Nothing changed.
+        if new_title_str == old_title_str:
+            return element
+
+        # ---------------------------------------------------------
+        # bbox was the only title field.
+        #
+        # Remove the complete title attribute.
+        #
+        # Example:
+        #
+        #     <p ... title="bbox 1 2 3 4">
+        #
+        # becomes:
+        #
+        #     <p ...>
+        # ---------------------------------------------------------
+
+        if not new_title_str:
+            attr_start = title_match.start()
+            attr_end = title_match.end()
+
+            # Remove one preceding whitespace character as well,
+            # so:
+            #
+            #     id='x' title="bbox ..."
+            #
+            # becomes:
+            #
+            #     id='x'
+            #
+            # rather than:
+            #
+            #     id='x' 
+            #
+            if (
+                attr_start > 0
+                and element[attr_start - 1:attr_start]
+                in (b" ", b"\t")
+            ):
+                attr_start -= 1
+
+            return (
+                element[:attr_start]
+                + element[attr_end:]
+            )
+
+        # ---------------------------------------------------------
+        # bbox is only one of several title fields.
+        #
+        # Preserve the original quote style.
+        # ---------------------------------------------------------
+
+        new_title = new_title_str.encode(
+            self.source_encoding
+        )
+
+        value_start = title_match.start(2)
+        value_end = title_match.end(2)
+
+        return (
+            element[:value_start]
+            + new_title
+            + element[value_end:]
+        )
+
+    @print_exceptions
+    def _remove_bbox_from_element_range(
+            self,
+            element_range: Tuple[int, int],
+        ) -> bytes:
+        """
+        Extract an element from source_bytes and remove its bbox.
+        """
+
+        start, end = element_range
+
+        element = self.source_bytes[start:end]
+
+        return self._remove_bbox_from_element(element)
+
+    @print_exceptions
+    def _union_bbox(
+            self,
+            left_bbox: Optional[Tuple[int, int, int, int]],
+            right_bbox: Optional[Tuple[int, int, int, int]],
+        ) -> Optional[Tuple[int, int, int, int]]:
+        """
+        Return the smallest bbox containing both input bboxes.
+        """
+
+        if left_bbox and right_bbox:
+            return (
+                min(left_bbox[0], right_bbox[0]),
+                min(left_bbox[1], right_bbox[1]),
+                max(left_bbox[2], right_bbox[2]),
+                max(left_bbox[3], right_bbox[3]),
+            )
+
+        if left_bbox:
+            return left_bbox
+
+        if right_bbox:
+            return right_bbox
+
         return None
 
 # ------------------------ helpers ------------------------

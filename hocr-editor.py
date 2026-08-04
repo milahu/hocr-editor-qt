@@ -423,6 +423,8 @@ class PageView(QGraphicsView):
                 for word in parser.find_words():
                     # expand word.id_bytes to avoid collisions
                     # assume that word.id_bytes has the pattern "word_[0-9]+_[0-9]+"
+                    # the first number is the page number
+                    # the second number is the word number on this page
                     word.id_bytes = word.id_bytes[:5] + parse_id + word.id_bytes[4:]
                     (x0, y0, x1, y1) = word.bbox
                     # scale bbox from cropped-image space to scene/pixmap space
@@ -1518,7 +1520,9 @@ class HocrEditor(QMainWindow):
             print("self.parser.source_bytes[start_byte:end_byte]:", self.parser.source_bytes[start_byte:end_byte])
             start_char = self.source_byte_offset_to_char_offset(start_byte)
             end_char = self.source_byte_offset_to_char_offset(end_byte)
-            print("editor_text[start_char:end_char]:", repr(editor_text[start_char:end_char]))
+            # no, this is wrong because start_char and end_char are indices for
+            # self.parser.source_bytes.decode(self.parser.source_encoding)
+            # print("editor_text[start_char:end_char]:", repr(editor_text[start_char:end_char]))
 
             word = current_word
 
