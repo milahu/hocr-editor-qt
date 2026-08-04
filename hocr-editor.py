@@ -1665,13 +1665,13 @@ class HocrEditor(QMainWindow):
     def on_word_changed(
             self,
             word_id: bytes,
-            new_text: Optional[bytes] = None,
+            new_text_bytes: Optional[bytes] = None,
             bbox: Optional[Tuple[int, int, int, int]] = None,
             span_start: Optional[int] = None,
         ):
         assert isinstance(word_id, bytes)
-        if new_text != None:
-            assert isinstance(new_text, bytes)
+        if new_text_bytes != None:
+            assert isinstance(new_text_bytes, bytes)
         """Called when WordItem text changes.
 
         If the caller provides span_start (byte offset of the span's start tag),
@@ -1679,12 +1679,12 @@ class HocrEditor(QMainWindow):
         to the old parser.update(word_id, ...).
         """
         if debug_word_id and debug_word_id == word_id:
-            print(f"word {word_id!r}: on_word_changed: new_text={new_text!r}, bbox={bbox}, span_start={span_start}")
+            print(f"word {word_id!r}: on_word_changed: new_text_bytes={new_text_bytes!r}, bbox={bbox}, span_start={span_start}")
         # Prefer span-based update (disambiguates duplicate ids)
         if span_start is not None:
-            ok = self.parser.update_by_span(span_start, text=new_text, bbox=bbox)
+            ok = self.parser.update_by_span(span_start, text_bytes=new_text_bytes, bbox=bbox)
         else:
-            ok = self.parser.update(word_id, text=new_text, bbox=bbox)
+            ok = self.parser.update(word_id, text_bytes=new_text_bytes, bbox=bbox)
 
         # reflect changed source immediately in code editor + redraw
         self.source_editor.editor.update_from_page()

@@ -576,14 +576,14 @@ class HocrParser:
     def update(self,
                word_id: str,
                *,
-               text_str: Optional[str] = None,
+               text_bytes: Optional[bytes] = None,
                bbox: Optional[Tuple[int, int, int, int]] = None,
                x_wconf: Optional[int] = None,
                new_id: Optional[str] = None) -> bool:
         """Apply one or more changes to a word by id using minimal diffs.
         Returns True if the word was found and something changed.
         """
-        # print(f"parser.update: text_str {text_str!r} bbox {bbox!r}")
+        # print(f"parser.update: text_bytes {text_bytes!r} bbox {bbox!r}")
         idx = self._index_words()
         node = idx.get(word_id)
         if not node:
@@ -591,14 +591,15 @@ class HocrParser:
 
         changed = False
 
-        assert isinstance(text_str, str)
+        if text_bytes is not None:
+            assert isinstance(text_bytes, bytes)
 
         # 1) text
-        if text_str is not None and node.byte_range:
+        if text_bytes is not None and node.byte_range:
             if debug_word_id and debug_word_id == word_id:
                 old_text = self.source_bytes[node.byte_range[0]:node.byte_range[1]]
-                print(f"word {word_id}: update: update text: {old_text!r} -> {text_str}")
-            self._replace_range(node.byte_range, text_str)
+                print(f"word {word_id}: update: update text: {old_text!r} -> {text_bytes}")
+            self._replace_range(node.byte_range, text_bytes)
             changed = True
             # reindex to refresh ranges after _replace_range
             idx = self._index_words()
@@ -637,7 +638,7 @@ class HocrParser:
             self,
             span_start: int,
             *,
-            text_str: Optional[str] = None,
+            text_bytes: Optional[bytes] = None,
             bbox: Optional[Tuple[int, int, int, int]] = None,
             x_wconf: Optional[int] = None,
             new_id: Optional[str] = None
@@ -652,13 +653,14 @@ class HocrParser:
 
         changed = False
 
-        assert isinstance(text_str, str)
+        if text_bytes is not None:
+            assert isinstance(text_bytes, bytes)
 
         # 1) text
-        if text_str is not None and word.byte_range:
+        if text_bytes is not None and word.byte_range:
             old_text = self.source_bytes[word.byte_range[0]:word.byte_range[1]]
-            print(f"word {word.id_bytes}: update_by_span: update text (by span): {old_text!r} -> {text_str!r}")
-            self._replace_range(word.byte_range, text_str)
+            print(f"word {word.id_bytes}: update_by_span: update text (by span): {old_text!r} -> {text_bytes!r}")
+            self._replace_range(word.byte_range, text_bytes)
             changed = True
             # re-find word after parse
             word = self.find_word_by_span_start(span_start) or word
