@@ -1,3 +1,9 @@
+# TODO feature: copy/paste of HOCR source code from/to plain text editor
+# to allow moving words in the plain text editor
+# while preserving the word IDs and bboxes
+# copying a word should copy a full HOCR document source
+# but containing only the pages/areas/paragraphs/lines/words selected in the plain text editor
+
 """
 HOCR Parser (HTML + XHTML) with Minimal-Diff Updates
 ====================================================
@@ -1204,7 +1210,58 @@ class HocrParser:
     def find_word_at_offset(self, pos: int) -> Optional[Word]:
         for word in self.find_words():
             if word.span_range[0] <= pos < word.span_range[1]:
+            # TODO include end of range?
+            # if word.span_range[0] <= pos <= word.span_range[1]:
                 return word
+        return None
+
+    @print_exceptions
+    def find_word_at_plain_text_offset(self, pos: int):
+        """
+        Find the HOCR word containing a character position in
+        get_plain_text().
+
+        `pos` is a Python character offset in the parser's plain-text
+        representation, NOT a byte offset into the HOCR source.
+        """
+
+        for span in self.text_spans:
+            if span.kind != "word":
+                continue
+
+            if span.word is None:
+                continue
+
+            # if span.start_char <= pos < span.end_char: # wrong!
+            if span.start_char <= pos <= span.end_char:
+                return span.word
+
+        return None
+
+    @print_exceptions
+    def find_plain_text_offset_for_word(self, word) -> Optional[int]:
+        """
+        Return the plain-text character offset of `word`.
+
+        The returned offset is in the coordinate system of
+        get_plain_text(), suitable for QPlainTextEdit QTextCursor.
+        """
+
+        for span in self.text_spans:
+            if span.kind != "word":
+                continue
+
+            if span.word is word:
+                return span.start_char
+
+            # Be robust if the parser rebuilt the model and the Word
+            # object identity changed.
+            if (
+                span.word is not None
+                and span.word.id_bytes == word.id_bytes
+            ):
+                return span.start_char
+
         return None
 
     @print_exceptions
@@ -1862,6 +1919,103 @@ class HocrParser:
         return None
 
     @print_exceptions
+    # def word_at_cursor_position(self, position: int) -> Optional[TextSpan]:
+    def span_at_cursor_zzzzzz(self, position: int) -> Optional[TextSpan]:
+        """
+        Return the text span associated with an insertion cursor position.
+
+        Cursor positions are between characters, so a cursor immediately after
+        a word belongs to that word. This is important for inserting text at
+        the end of a word.
+        """
+
+        debug = 1
+        if debug:
+            print(
+                # "word_at_cursor_position:",
+                "span_at_cursor:",
+                "position=", position,
+            )
+
+        for span in self.text_spans:
+            if debug:
+                print(
+                    "  checking:",
+                    span.kind,
+                    span.start_char,
+                    span.end_char,
+                    repr(self.get_plain_text()[span.start_char:span.end_char]),
+                )
+            if span.start_char <= position < span.end_char:
+                if debug:
+                    print("  -> INSIDE WORD")
+                return span
+
+        # Cursor immediately after a span.
+        for span in self.text_spans:
+            if position == span.end_char:
+                if debug:
+                    print("  -> AT END OF WORD")
+                return span
+
+        if debug:
+            print("  -> NO WORD")
+        return None
+
+    @print_exceptions
+    # def word_at_cursor_position(self, position: int) -> Optional[TextSpan]:
+    def span_at_cursor(self, position: int) -> Optional[TextSpan]:
+        """
+        Return the word TextSpan associated with a plain-text cursor position.
+
+        A cursor inside a word belongs to that word.
+
+        A cursor immediately after a word also belongs to that word.
+
+        Word boundaries take priority over non-word spans such as spaces.
+        """
+
+        # ---------------------------------------------------------
+        # 1. First look for a word containing the cursor.
+        # ---------------------------------------------------------
+
+        for span in self.text_spans:
+            if span.kind != "word":
+                continue
+
+            if (
+                span.start_char
+                <= position
+                < span.end_char
+            ):
+                return span
+
+        # ---------------------------------------------------------
+        # 2. Then look for a word whose END is exactly the cursor.
+        #
+        # This must happen before looking at generic spans because
+        # the following span may start at the same position.
+        #
+        # Example:
+        #
+        #     Viele| spezifische
+        #
+        #     word   0..5
+        #     space  5..6
+        #
+        # position == 5 must return "Viele", not the space.
+        # ---------------------------------------------------------
+
+        for span in self.text_spans:
+            if span.kind != "word":
+                continue
+
+            if position == span.end_char:
+                return span
+
+        return None
+
+    @print_exceptions
     def spans_overlapping(
             self,
             start_char: int,
@@ -2163,6 +2317,7 @@ class HocrParser:
                 span.left_paragraph
                 and span.right_paragraph
             ):
+                print(f"HocrParser.replace_plain_text: 1. Paragraph merge: Case A")
                 paragraph_merge_candidate = span
                 break
 
@@ -2199,6 +2354,7 @@ class HocrParser:
                     and span.right_paragraph
                 ):
                     paragraph_merge_candidate = span
+                    print(f"HocrParser.replace_plain_text: 1. Paragraph merge: Case B")
                     break
 
         # ---------------------------------------------------------
@@ -2225,6 +2381,7 @@ class HocrParser:
                         and span.right_paragraph
                     ):
                         paragraph_merge_candidate = span
+                        print(f"HocrParser.replace_plain_text: 1. Paragraph merge: Case C")
                         break
 
         # ---------------------------------------------------------
@@ -2236,10 +2393,10 @@ class HocrParser:
         # ---------------------------------------------------------
 
         if (
-            paragraph_merge_candidate is not None
-            and "\n" in old_changed
-            and "\n" not in new_changed
-        ):
+                paragraph_merge_candidate is not None
+                and "\n" in old_changed
+                and "\n" not in new_changed
+            ):
             span = paragraph_merge_candidate
 
             print(
@@ -2285,9 +2442,10 @@ class HocrParser:
         # ---------------------------------------------------------
 
         if (
-            "\n\n" in new_changed
-            and "\n\n" not in old_changed
-        ):
+                "\n\n" in new_changed
+                and "\n\n" not in old_changed
+            ):
+            print(f"HocrParser.replace_plain_text: 2. Paragraph split")
             # Find the line break immediately around the insertion.
             #
             # We identify the paragraph using the old model.
@@ -2320,10 +2478,11 @@ class HocrParser:
         # ---------------------------------------------------------
 
         if (
-            "\n" in old_changed
-            and "\n\n" not in old_changed
-            and "\n" not in new_changed
-        ):
+                "\n" in old_changed
+                and "\n\n" not in old_changed
+                and "\n" not in new_changed
+            ):
+            print(f"HocrParser.replace_plain_text: 3. Line merge")
             for span in affected_spans:
                 if span.kind == "line_break":
                     if (
@@ -2393,10 +2552,11 @@ class HocrParser:
         # ---------------------------------------------------------
 
         if (
-            "\n" in new_changed
-            and "\n\n" not in new_changed
-            and "\n" not in old_changed
-        ):
+                "\n" in new_changed
+                and "\n\n" not in new_changed
+                and "\n" not in old_changed
+            ):
+            print(f"HocrParser.replace_plain_text: 4. Newline insertion")
             debug = 0
             if debug:
                 print("\n========== NEWLINE INSERT DEBUG ==========")
@@ -2488,11 +2648,11 @@ class HocrParser:
             # ---------------------------------------------------------
 
             if (
-                current_span is not None
-                and current_span.kind == "space"
-                and current_span.left_word is not None
-                and current_span.right_word is not None
-            ):
+                    current_span is not None
+                    and current_span.kind == "space"
+                    and current_span.left_word is not None
+                    and current_span.right_word is not None
+                ):
                 left_word = current_span.left_word
                 right_word = current_span.right_word
 
@@ -2570,12 +2730,12 @@ class HocrParser:
             # ---------------------------------------------------------
 
             if (
-                current_span is not None
-                and current_span.kind == "word"
-                and current_span.word is not None
-                and current_span.start_char < prefix
-                and prefix < current_span.end_char
-            ):
+                    current_span is not None
+                    and current_span.kind == "word"
+                    and current_span.word is not None
+                    and current_span.start_char < prefix
+                    and prefix < current_span.end_char
+                ):
                 word = current_span.word
 
                 word_text = word.text_bytes.decode(
@@ -2648,6 +2808,8 @@ class HocrParser:
                 # This rebuilds the model.
                 # -----------------------------------------------------
 
+                self._hocr_editor.debug_word_item_state_dump("BEFORE SPLIT")
+
                 if not self.split_word(
                     word,
                     offset,
@@ -2655,7 +2817,9 @@ class HocrParser:
                     print(
                         "NEWLINE INSERT: split_word failed"
                     )
+                    self._hocr_editor.debug_word_item_state_dump("AFTER SPLIT FAILED")
                     return False
+                self._hocr_editor.debug_word_item_state_dump("AFTER SPLIT SUCCESS")
 
                 # -----------------------------------------------------
                 # Find the two newly-created words.
@@ -2859,14 +3023,14 @@ class HocrParser:
             # ---------------------------------------------------------
 
             if (
-                previous_span is not None
-                and next_span is not None
-                and previous_span.kind == "space"
-                and next_span.kind == "word"
-                and previous_span.left_word is not None
-                and previous_span.right_word is not None
-                and next_span.word is not None
-            ):
+                    previous_span is not None
+                    and next_span is not None
+                    and previous_span.kind == "space"
+                    and next_span.kind == "word"
+                    and previous_span.left_word is not None
+                    and previous_span.right_word is not None
+                    and next_span.word is not None
+                ):
                 left_word = previous_span.left_word
                 right_word = previous_span.right_word
 
@@ -2961,13 +3125,13 @@ class HocrParser:
             # -----------------------------------------------------
 
             if (
-                previous_span is not None
-                and next_span is not None
-                and previous_span.kind == "word"
-                and next_span.kind == "word"
-                and previous_span.word is not None
-                and next_span.word is not None
-            ):
+                    previous_span is not None
+                    and next_span is not None
+                    and previous_span.kind == "word"
+                    and next_span.kind == "word"
+                    and previous_span.word is not None
+                    and next_span.word is not None
+                ):
                 previous_word = previous_span.word
                 next_word = next_span.word
 
@@ -3037,12 +3201,12 @@ class HocrParser:
             # -----------------------------------------------------
 
             if (
-                previous_span is not None
-                and next_span is not None
-                and previous_span.kind == "line_break"
-                and next_span.kind == "word"
-                and next_span.word is not None
-            ):
+                    previous_span is not None
+                    and next_span is not None
+                    and previous_span.kind == "line_break"
+                    and next_span.kind == "word"
+                    and next_span.word is not None
+                ):
                 next_word = next_span.word
 
                 right_line = None
@@ -3119,11 +3283,11 @@ class HocrParser:
             # -----------------------------------------------------
 
             if (
-                previous_span is not None
-                and next_span is not None
-                and previous_span.kind == "word"
-                and next_span.kind == "line_break"
-            ):
+                    previous_span is not None
+                    and next_span is not None
+                    and previous_span.kind == "word"
+                    and next_span.kind == "line_break"
+                ):
                 previous_word = previous_span.word
 
                 if previous_word is not None:
@@ -3183,9 +3347,10 @@ class HocrParser:
         # ---------------------------------------------------------
 
         if (
-            " " in old_changed
-            and " " not in new_changed
-        ):
+                " " in old_changed
+                and " " not in new_changed
+            ):
+            print(f"HocrParser.replace_plain_text: 5. Word merge")
             for span in affected_spans:
                 if (
                     span.kind == "space"
@@ -3227,9 +3392,10 @@ class HocrParser:
         # ---------------------------------------------------------
 
         if (
-            " " in new_changed
-            and " " not in old_changed
-        ):
+                " " in new_changed
+                and " " not in old_changed
+            ):
+            print(f"HocrParser.replace_plain_text: 6. Word split")
             # Find the old word containing the insertion.
             for span in self.text_spans:
                 if span.kind != "word":
@@ -3303,16 +3469,54 @@ class HocrParser:
         #
         # becomes:
         #
-        #     Hallo
+        #     hexllo
         # ---------------------------------------------------------
 
         if (
-            "\n" not in old_changed
-            and "\n" not in new_changed
-            and " " not in old_changed
-            and " " not in new_changed
-        ):
-            span = self.span_at(prefix)
+                "\n" not in old_changed
+                and "\n" not in new_changed
+                and " " not in old_changed
+                and " " not in new_changed
+            ):
+            print(f"HocrParser.replace_plain_text: 7. Simple word text change")
+
+            debug = 1
+            if debug:
+                print("\n========== SIMPLE WORD TEXT CHANGE ==========")
+                print("prefix:", prefix)
+                print("old_end:", old_end)
+                print("new_end:", new_end)
+                print("old_changed:", repr(old_changed))
+                print("new_changed:", repr(new_changed))
+                print("old_text:", repr(old_text))
+                print("new_text:", repr(new_text))
+                print("\nTEXT SPANS:")
+                for i, s in enumerate(self.text_spans):
+                    print(
+                        f"  [{i}]",
+                        "kind=", s.kind,
+                        "start=", s.start_char,
+                        "end=", s.end_char,
+                        "text=", repr(
+                            old_text[s.start_char:s.end_char]
+                        ),
+                        "word=",
+                        s.word.id_bytes if s.word else None,
+                    )
+
+
+            # span = self.span_at(prefix)
+            span = self.span_at_cursor(prefix)
+
+            if debug:
+                print("\nword_at_cursor_position:")
+                print("  span:", span)
+                if span is not None:
+                    print("  span.kind:", span.kind)
+                    print("  span.start_char:", span.start_char)
+                    print("  span.end_char:", span.end_char)
+                    print("  span text:", repr(old_text[span.start_char:span.end_char]))
+                    print("  span.word:", span.word.id_bytes if span.word else None)
 
             if (
                 span is not None
@@ -3321,14 +3525,63 @@ class HocrParser:
             ):
                 word = span.word
 
-                # Replace the complete word text.
-                replacement = new_text[
-                    span.start_char:
-                    span.start_char
-                    + len(new_changed)
-                ]
+                # The span coordinates refer to the OLD plain-text
+                # representation.
+                #
+                # Reconstruct the COMPLETE new word by applying
+                # the detected edit to the old word text.
+                old_word_text = word.text_bytes.decode(
+                    self.source_encoding,
+                    errors="replace",
+                )
 
-                self.update_word_text(
+                relative_start = prefix - span.start_char
+
+                old_changed_len = len(old_changed)
+
+                replacement = (
+                    old_word_text[:relative_start]
+                    + new_changed
+                    + old_word_text[relative_start + old_changed_len:]
+                )
+
+                # if debug:
+                if 0:
+                    print("SIMPLE WORD TEXT CHANGE:")
+                    print("  word:", word.id_bytes)
+                    print("  old_word_text:", repr(old_word_text))
+                    print("  prefix:", prefix)
+                    print("  span.start_char:", span.start_char)
+                    print("  relative_start:", relative_start)
+                    print("  old_changed:", repr(old_changed))
+                    print("  new_changed:", repr(new_changed))
+                    print("  replacement:", repr(replacement))
+
+                if debug:
+                    print("\nWORD:")
+                    print("  word.id:", word.id_bytes)
+                    print("  word.text:", repr(old_word_text))
+                    print("  relative_start:", relative_start)
+                    print("  word length:", len(old_word_text))
+                    old_changed_len = len(old_changed)
+                    print("\nEDIT:")
+                    print("  old_changed_len:", old_changed_len)
+                    print("  new_changed:", repr(new_changed))
+                    left = old_word_text[:relative_start]
+                    right = old_word_text[relative_start + old_changed_len:]
+                    replacement = (
+                        left
+                        + new_changed
+                        + right
+                    )
+                    print("\nRECONSTRUCTION:")
+                    print("  left:", repr(left))
+                    print("  inserted:", repr(new_changed))
+                    print("  right:", repr(right))
+                    print("  replacement:", repr(replacement))
+                    print("=============================================\n")
+
+                self._replace_word_text(
                     word,
                     replacement,
                 )
@@ -3706,6 +3959,14 @@ class HocrParser:
         editor. The parser source and tree are updated, then the affected
         Word is refreshed.
         """
+        debug = 1
+        if debug:
+            print(
+                "_replace_word_text:",
+                "word=", word.id_bytes,
+                "old_text=", repr(word.text_bytes.decode(self.source_encoding, errors="replace")),
+                "new_text=", repr(new_text),
+            )
         new_bytes = new_text.encode(
             self.source_encoding,
             errors="replace",

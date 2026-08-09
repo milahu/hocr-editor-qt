@@ -71,6 +71,8 @@ from resizable_rect_item import ResizableRectItem
 import git_helpers
 import color_helpers
 
+debug_word_item = False
+
 bbox_re = re.compile(r"bbox (\d+) (\d+) (\d+) (\d+)")
 xwconf_re = re.compile(r"x_wconf (\d+)")
 
@@ -136,6 +138,20 @@ class WordItem(ResizableRectItem):
         else:
             # disable text overlay
             self.text_item = None
+
+    # debug
+    # However, __del__ is not necessarily reliable for detecting C++ deletion.
+    # Better is to explicitly observe the Qt lifecycle -> debug_word_item_state
+    @print_exceptions
+    def __del__(self):
+        try:
+            print(
+                "DELETE WordItem",
+                "item=", getattr(self, "_debug_instance_id", None),
+                "word_id=", getattr(self, "_debug_word_id", None),
+            )
+        except Exception:
+            pass
 
     @print_exceptions
     def __str__(self):
@@ -506,6 +522,171 @@ def pil_to_tiff_bytes(img: PIL.Image.Image) -> bytes:
 
 
 class HocrEditor(QMainWindow):
+
+    # debug
+    def debug_word_item_state(self, item, label=""):
+        try:
+            scene = item.scene()
+        except RuntimeError:
+            print(
+                f"[STALE] {label}",
+                "item=", id(item),
+                "word_id=", getattr(item.word, "id_bytes", None),
+            )
+            return False
+
+        print(
+            f"[ALIVE] {label}",
+            "item=", id(item),
+            "word_id=", getattr(item.word, "id_bytes", None),
+            "scene_is_current=", scene is self.scene,
+            "scene=", scene,
+        )
+        return True
+
+    # debug
+    def debug_word_item_state_dump(self, label=""):
+        print()
+        print("=" * 80)
+        print("WORD ITEM STATE:", label)
+        print("=" * 80)
+
+        # Parser
+        parser_words = self.parser.find_words()
+
+        print()
+        print("PARSER WORDS:", len(parser_words))
+
+        parser_by_id = {}
+
+        for word in parser_words:
+            wid = word.id_bytes
+
+            parser_by_id.setdefault(wid, []).append(word)
+
+            print(
+                "  PARSER",
+                "id=", wid,
+                "text=", repr(word.text_bytes),
+                "bbox=", word.bbox,
+                "byte_range=", word.byte_range,
+                "span_range=", getattr(word, "span_range", None),
+            )
+
+        # word_items
+        print()
+        print("WORD_ITEMS DICT:", len(self.word_items))
+
+        for wid, items in self.word_items.items():
+            print()
+            print("  WORD_ID:", wid)
+            print("  parser_count:", len(parser_by_id.get(wid, [])))
+            print("  item_count:", len(items))
+
+            for item in items:
+                try:
+                    scene = item.scene()
+                    alive = True
+                except RuntimeError:
+                    scene = None
+                    alive = False
+
+                print(
+                    "    ITEM",
+                    "python_id=", id(item),
+                    "alive=", alive,
+                    "scene_is_current=", scene is self.scene if alive else False,
+                    "word_id=", (
+                        getattr(item.word, "id_bytes", None)
+                        if alive
+                        else "<stale>"
+                    ),
+                    "word_text=", (
+                        repr(item.word.text_bytes)
+                        if alive
+                        else "<stale>"
+                    ),
+                )
+
+        # Scene
+        print()
+        print("SCENE ITEMS:")
+
+        scene_word_items = []
+
+        for item in self.scene.items():
+            if isinstance(item, WordItem):
+                scene_word_items.append(item)
+
+                print(
+                    "  SCENE ITEM",
+                    "python_id=", id(item),
+                    "word_id=", item.word.id_bytes,
+                    "text=", repr(item.word.text_bytes),
+                    "bbox=", item.word.bbox,
+                )
+
+        print()
+        print("SCENE WORD ITEMS:", len(scene_word_items))
+
+        print("=" * 80)
+        print()
+
+    # debug
+    def debug_assert_word_item_consistency(self, where=""):
+        scene_items = [
+            item
+            for item in self.scene.items()
+            if isinstance(item, WordItem)
+        ]
+
+        tracked_items = [
+            item
+            for items in self.word_items.values()
+            for item in items
+        ]
+
+        scene_ids = {id(item) for item in scene_items}
+        tracked_ids = {id(item) for item in tracked_items}
+
+        if scene_ids != tracked_ids:
+            print()
+            print("=" * 80)
+            print("WORD ITEM INVARIANT VIOLATION:", where)
+            print("=" * 80)
+
+            print("Scene items:")
+            for item in scene_items:
+                print(
+                    " ",
+                    id(item),
+                    getattr(item.word, "id_bytes", None),
+                    getattr(item.word, "span_range", None),
+                )
+
+            print("Tracked items:")
+            for item in tracked_items:
+                print(
+                    " ",
+                    id(item),
+                    getattr(item.word, "id_bytes", None),
+                    getattr(item.word, "span_range", None),
+                )
+
+            print(
+                "ONLY IN SCENE:",
+                scene_ids - tracked_ids,
+            )
+
+            print(
+                "ONLY IN word_items:",
+                tracked_ids - scene_ids,
+            )
+
+            raise AssertionError(
+                f"WordItem bookkeeping inconsistent at {where}"
+            )
+
     @print_exceptions
     def __init__(self, args: Any):
         super().__init__()
@@ -573,6 +754,9 @@ class HocrEditor(QMainWindow):
         # self.plain_text_editor.document().contentsChange.connect(
         #     self.on_plain_text_changed
         # )
+        self.plain_text_editor.cursorPositionChanged.connect(
+            self.on_plain_text_cursor_changed
+        )
         font = self.plain_text_editor.font()
         if font.pointSizeF() > 0:
             # increase the font size to 200%
@@ -720,11 +904,11 @@ class HocrEditor(QMainWindow):
 
     @print_exceptions
     def on_plain_text_contents_change_zzzzzzzzz(
-        self,
-        position,
-        chars_removed,
-        chars_added,
-    ):
+            self,
+            position,
+            chars_removed,
+            chars_added,
+        ):
         # if self._updating_views:
         if self._updating_plain_text:
             return
@@ -761,11 +945,11 @@ class HocrEditor(QMainWindow):
 
     @print_exceptions
     def on_plain_text_contents_change_zzzzzzzzzz(
-        self,
-        position,
-        chars_removed,
-        chars_added,
-    ):
+            self,
+            position,
+            chars_removed,
+            chars_added,
+        ):
         # if self._updating_views:
         if self._updating_plain_text:
             return
@@ -788,11 +972,11 @@ class HocrEditor(QMainWindow):
 
     @print_exceptions
     def on_plain_text_contents_change_zzzzzzzz(
-        self,
-        position,
-        chars_removed,
-        chars_added,
-    ):
+            self,
+            position,
+            chars_removed,
+            chars_added,
+        ):
         if self._updating_plain_text:
             return
 
@@ -807,16 +991,19 @@ class HocrEditor(QMainWindow):
             ),
         )
 
+    @print_exceptions
     def on_plain_text_contents_change(
         self,
-        position,
-        chars_removed,
-        chars_added,
-    ):
+            position,
+            chars_removed,
+            chars_added,
+        ):
         if self._updating_plain_text:
             return
         if self._syncing_from_parser:
             return
+
+        print("HocrEditor.on_plain_text_contents_change")
 
         old_text = self.parser.get_plain_text()
 
@@ -838,12 +1025,54 @@ class HocrEditor(QMainWindow):
         self.refresh_from_parser()
 
     @print_exceptions
+    def on_plain_text_cursor_changed(self):
+        # Only sync when the plain-text editor is actually focused.
+        #
+        # This prevents parser/page -> plain-text synchronization from
+        # immediately causing the page view to jump back to the cursor.
+        if not self.plain_text_editor.hasFocus():
+            print(f"HocrEditor.on_plain_text_cursor_changed: no focus")
+            return
+
+        cursor = self.plain_text_editor.textCursor()
+        pos = cursor.position()
+
+        # The cursor position is a character offset in parser.get_plain_text().
+        # word = self.parser.find_word_at_offset(pos)
+        word = self.parser.find_word_at_plain_text_offset(pos)
+        if not word:
+            print(f"HocrEditor.on_plain_text_cursor_changed: no word at pos={pos}")
+            return
+
+        # Find the corresponding page-view item.
+        items = self.word_items.get(word.id_bytes)
+        if not items:
+            print(f"HocrEditor.on_plain_text_cursor_changed: no items at word_id={word.id_bytes}")
+            return
+
+        if len(items) > 1:
+            print(
+                "on_plain_text_cursor_changed: "
+                f"FIXME collision in word id {word.id_bytes!r}"
+            )
+            for item in items:
+                print(f"  item {item}")
+
+        item = items[0]
+
+        print(f"HocrEditor.on_plain_text_cursor_changed: item", item)
+
+        # Center and select the corresponding page word.
+        self.page_view.centerOn(item)
+        item.setSelected(True)
+
+    @print_exceptions
     def process_plain_text_change_zzzzzzzzz(
-        self,
-        position,
-        chars_removed,
-        chars_added,
-    ):
+            self,
+            position,
+            chars_removed,
+            chars_added,
+        ):
         document = self.plain_text_editor.document()
 
         # QTextDocument character count.
@@ -890,11 +1119,11 @@ class HocrEditor(QMainWindow):
 
     @print_exceptions
     def process_plain_text_change_zzzzzzzzz(
-        self,
-        position,
-        chars_removed,
-        chars_added,
-    ):
+            self,
+            position,
+            chars_removed,
+            chars_added,
+        ):
         # if self._updating_views:
         if self._updating_plain_text:
             return
@@ -919,11 +1148,11 @@ class HocrEditor(QMainWindow):
 
     @print_exceptions
     def process_plain_text_change(
-        self,
-        position,
-        chars_removed,
-        chars_added,
-    ):
+            self,
+            position,
+            chars_removed,
+            chars_added,
+        ):
         if self._updating_plain_text:
             return
         if self._syncing_from_parser:
@@ -931,21 +1160,13 @@ class HocrEditor(QMainWindow):
 
         new_text = self.plain_text_editor.toPlainText()
 
-        print(
-            "plain text changed:",
-            repr(new_text),
-        )
+        print("plain text changed:", repr(new_text))
 
         try:
-            self.parser.replace_plain_text(
-                new_text,
-            )
+            self.parser.replace_plain_text(new_text)
 
         except NotImplementedError as exc:
-            print(
-                "Plain-text edit not yet supported:",
-                exc,
-            )
+            print("Plain-text edit not yet supported:", exc)
             return
 
         # Update all views from parser.
@@ -1049,6 +1270,7 @@ class HocrEditor(QMainWindow):
     def schedule_full_rebuild(self):
         self._rebuild_timer.start()
 
+    # TODO remove
     @print_exceptions
     def on_plain_text_changed(self):
         # if self._updating_views:
@@ -1137,13 +1359,70 @@ class HocrEditor(QMainWindow):
     # FIXME refactor load_words and rebuild_page_view
     @print_exceptions
     def rebuild_page_view(self):
+
+        if 1:
+            # try to fix "stale WordItem" bug
+            # Drop our bookkeeping first.
+            # later: self.scene.clear()
+            print(f"HocrEditor.rebuild_page_view: self.word_items.clear()")
+            self.word_items.clear()
+
         # Remove existing word items.
+        print(f"HocrEditor.rebuild_page_view: self.scene.clear()")
         self.scene.clear()
+
+        if 1:
+            # yes, this works
+            # try to fix "stale WordItem" bug
+            # Recreate both the scene items and word_items dictionary.
+            print(f"HocrEditor.rebuild_page_view: self.load_words()")
+            self.load_words()
+
+            self.debug_assert_word_item_consistency("after rebuild_page_view")
+
+            print(f"HocrEditor.rebuild_page_view: return")
+            return
+
+        seen_ids = {} # debug
 
         # Rebuild from parser's current model.
         for paragraph in self.parser.paragraphs:
             for line in paragraph.lines:
                 for word in line.words:
+
+                    debug = 1
+                    if debug:
+                        word_id = word.id_bytes
+                        if word_id in seen_ids:
+                            print("\n========== DUPLICATE WORD IN PAGE VIEW MODEL ==========")
+                            print("duplicate id:", word_id)
+                            print("first word object:", id(seen_ids[word_id]))
+                            print("second word object:", id(word))
+                            print(
+                                "first text:",
+                                repr(
+                                    seen_ids[word_id].text_bytes.decode(
+                                        self.parser.source_encoding,
+                                        errors="replace",
+                                    )
+                                ),
+                            )
+                            print(
+                                "second text:",
+                                repr(
+                                    word.text_bytes.decode(
+                                        self.parser.source_encoding,
+                                        errors="replace",
+                                    )
+                                ),
+                            )
+                            print("first bbox:", seen_ids[word_id].bbox)
+                            print("second bbox:", word.bbox)
+                            print("first element range:", seen_ids[word_id].element_byte_range)
+                            print("second element range:", word.element_byte_range)
+                            print("========================================================\n")
+                        else:
+                            seen_ids[word_id] = word
 
                     item = WordItem(
                         word,
@@ -1151,13 +1430,42 @@ class HocrEditor(QMainWindow):
                         self.on_word_changed,
                     )
 
+                    if debug_word_item:
+                        item._debug_instance_id = id(item)
+                        item._debug_word_id = word.id_bytes
+                        item._debug_span_range = getattr(word, "span_range", None)
+                        print(
+                            "HocrEditor.rebuild_page_view:"
+                            "CREATE WordItem",
+                            "item=", id(item),
+                            "word_id=", word.id_bytes,
+                            "span_range=", item._debug_span_range,
+                        )
+
+                    if debug_word_item:
+                        item._debug_instance_id = id(item)
+                        item._debug_word_id = word.id_bytes
+                        item._debug_span_range = getattr(word, "span_range", None)
+                        print(
+                            "CREATE WordItem",
+                            "item=", id(item),
+                            "word_id=", word.id_bytes,
+                            "span_range=", item._debug_span_range,
+                        )
+
                     self.scene.addItem(
                         item
                     )
 
         # Re-add page background if you have one.
+        print(f"HocrEditor.rebuild_page_view: self.load_page_background()")
         self.load_page_background()
 
+        self.debug_assert_word_item_consistency("after rebuild_page_view")
+
+        print(f"HocrEditor.rebuild_page_view: return")
+
+    @print_exceptions
     def source_byte_to_qt_position(self, byte_offset: int) -> int:
         """
         Convert a UTF-8 byte offset in parser.source_bytes into
@@ -1271,6 +1579,8 @@ class HocrEditor(QMainWindow):
 
         self.parser = HocrParser(source_bytes)
 
+        self.parser._hocr_editor = self
+
         if debug:
             print("HocrEditor.load_hocr: calling self.parser.find_words")
         self.words = self.parser.find_words()
@@ -1315,6 +1625,7 @@ class HocrEditor(QMainWindow):
 
         self.load_words()
 
+    @print_exceptions
     def load_page_background(self):
         # --- add page images ---
         for page in self.parser.find_pages():
@@ -1338,7 +1649,16 @@ class HocrEditor(QMainWindow):
     @print_exceptions
     def load_words(self):
         """Populate the scene with WordItems from parser"""
+
+        if 1:
+            # try to fix "stale WordItem" bug
+            print(f"HocrEditor.load_words: self.word_items.clear()")
+            self.word_items.clear()
+
+        print(f"HocrEditor.load_words: self.load_page_background()")
         self.load_page_background()
+
+        print(f"HocrEditor.load_words: populating self.scene and self.word_items")
 
         for word in self.parser.find_words():
             item = WordItem(
@@ -1346,18 +1666,49 @@ class HocrEditor(QMainWindow):
                 word_selected_cb=self.on_word_selected,
                 word_changed_cb=self.on_word_changed,
             )
+
+            if debug_word_item:
+                item._debug_instance_id = id(item)
+                item._debug_word_id = word.id_bytes
+                item._debug_span_range = getattr(word, "span_range", None)
+                print(
+                    "HocrEditor.load_words:"
+                    "CREATE WordItem",
+                    "item=", id(item),
+                    "word_id=", word.id_bytes,
+                    "span_range=", item._debug_span_range,
+                )
+
             self.scene.addItem(item)
             if not word.id_bytes in self.word_items:
                 self.word_items[word.id_bytes] = list()
             self.word_items[word.id_bytes].append(item)
 
+        self.debug_assert_word_item_consistency("after load_words")
+
     @print_exceptions
     def refresh_page_view(self, force=False):
         """Update words from parser"""
+
+        self.debug_word_item_state_dump("ENTER refresh_page_view")
+
         if force:
+
+            if 1:
+                # try to fix "stale WordItem" bug
+                # Drop our bookkeeping first.
+                # later: self.scene.clear()
+                print(f"HocrEditor.refresh_page_view: self.word_items.clear()")
+                self.word_items.clear()
+
             # slow non-incremental update
+            print(f"HocrEditor.refresh_page_view: self.scene.clear()")
             self.scene.clear()
+
             self.load_words()
+            self.debug_word_item_state_dump("EXIT refresh_page_view")
+            self.debug_assert_word_item_consistency("after refresh_page_view")
+            print(f"HocrEditor.refresh_page_view: return")
             return
         new_words = dict()
         for word in self.parser.find_words():
@@ -1371,7 +1722,7 @@ class HocrEditor(QMainWindow):
                 for item in self.word_items.pop(wid):
                     if debug_word_id and debug_word_id == wid:
                         print(f"word {wid}: refresh_page_view: removing item {item}")
-                    self.scene.removeItem(item)
+                    self._remove_word_item(item)
                     num_words_removed += 1
         # update or add words
         num_words_updated = 0
@@ -1386,6 +1737,15 @@ class HocrEditor(QMainWindow):
                     # update word
                     word = words[0]
                     item = items[0]
+
+                    # if item.scene() is None:
+                    try:
+                        item.scene()
+                    except RuntimeError as exc:
+                        # RuntimeError: libshiboken: Internal C++ object (WordItem) already deleted.
+                        print("refresh_page_view: ignoring stale WordItem:", item)
+                        continue
+
                     if debug_word_id and debug_word_id == wid:
                         print(f"word {wid}: refresh_page_view: updating item {item}")
                     # update text and bbox
@@ -1408,6 +1768,7 @@ class HocrEditor(QMainWindow):
                         if debug_word_id and debug_word_id == wid:
                             print(f"word {wid}: refresh_page_view: updating item bbox: {item.word.bbox!r} -> {word.bbox!r}")
                         x0, y0, x1, y1 = word.bbox
+                        # FIXME RuntimeError: libshiboken: Internal C++ object (WordItem) already deleted.
                         item.setPos(x0, y0)
                         item.setRect(0, 0, x1 - x0, y1 - y0)
                         item._update_text_position()
@@ -1424,11 +1785,18 @@ class HocrEditor(QMainWindow):
                         print(f"  word {word}")
                     for item in items:
                         print(f"  item {item}")
+
+                    r'''
                     for item in items:
                         if debug_word_id and debug_word_id == wid:
                             print(f"word {wid}: refresh_page_view: removing item {item}")
-                        self.scene.removeItem(item)
+                        self._remove_word_item(item)
                     self.word_items[wid] = list()
+                    '''
+                    items_to_remove = self.word_items.pop(wid, [])
+                    for item in items_to_remove:
+                        self.scene.removeItem(item)
+
                     # add words
                     add_words = words
             else:
@@ -1441,6 +1809,19 @@ class HocrEditor(QMainWindow):
                         word_selected_cb=self.on_word_selected,
                         word_changed_cb=self.on_word_changed,
                     )
+
+                    if debug_word_item:
+                        item._debug_instance_id = id(item)
+                        item._debug_word_id = word.id_bytes
+                        item._debug_span_range = getattr(word, "span_range", None)
+                        print(
+                            "HocrEditor.refresh_page_view:"
+                            "CREATE WordItem",
+                            "item=", id(item),
+                            "word_id=", word.id_bytes,
+                            "span_range=", item._debug_span_range,
+                        )
+
                     item.set_text_color(self.overlay_color)
                     if debug_word_id and debug_word_id == wid:
                         print(f"word {wid}: refresh_page_view: adding item {item}")
@@ -1458,6 +1839,30 @@ class HocrEditor(QMainWindow):
             if changed_word_item:
                 self.on_word_selected(changed_word_item)
         QTimer.singleShot(0, select_changed_word)
+        self.debug_word_item_state_dump("EXIT refresh_page_view")
+
+    @print_exceptions
+    def _remove_word_item(self, item):
+        """Remove a WordItem from the scene and all bookkeeping."""
+        if item is None:
+            print("HocrEditor._remove_word_item: item is None -> return")
+            return
+        # Remove from scene first.
+        if item.scene() is self.scene:
+            self.scene.removeItem(item)
+        # Remove every reference from word_items.
+        for wid, items in list(self.word_items.items()):
+            if item in items:
+                self.word_items[wid] = [
+                    existing
+                    for existing in items
+                    if existing is not item
+                ]
+                if not self.word_items[wid]:
+                    del self.word_items[wid]
+
+        self.debug_assert_word_item_consistency("after _remove_word_item")
+        print("HocrEditor._remove_word_item: return")
 
     @print_exceptions
     def find_word_item_by_word_id(self, word_id: str):
@@ -1467,9 +1872,21 @@ class HocrEditor(QMainWindow):
                 return word_item
 
     @print_exceptions
-    def on_word_selected(self, word_item: WordItem):
-        if self.source_editor.editor.hasFocus():
+    def on_word_selected_zzzzzzzz(self, word_item: WordItem):
+        # if self.source_editor.editor.hasFocus():
+        # TODO verify: does this work?
+        if self.page_view.hasFocus():
+            print(f"HocrEditor.on_word_selected: no focus")
             return
+
+        # Only refresh the currently visible bottom tab.
+        current_widget = self.bottom_tabs.currentWidget()
+        if current_widget is self.plain_text_editor:
+            # TODO
+            pass
+        elif current_widget is self.hocr_source_editor:
+            # TODO
+            pass
 
         debug = False
         # debug = True
@@ -1569,10 +1986,120 @@ class HocrEditor(QMainWindow):
         self.source_editor.editor.setFocus()
 
     @print_exceptions
+    def on_word_selected(self, word_item: WordItem):
+        """
+        Sync a page-view word selection to whichever bottom editor is
+        currently visible.
+
+        Page view -> plain-text editor:
+            Word -> parser text span -> plain-text character range
+
+        Page view -> HOCR source editor:
+            Word -> HOCR source byte range -> source character range
+        """
+
+        if word_item is None:
+            return
+
+        # ---------------------------------------------------------
+        # Look up the word in the CURRENT parser model.
+        #
+        # WordItem may contain a Word object from an older parser
+        # generation, so don't trust its byte_range directly.
+        # ---------------------------------------------------------
+
+        word = word_item.word
+        if word is None:
+            return
+
+        word_id = word.id_bytes
+
+        current_word = self.parser.get_word_by_id(word_id)
+        if current_word is None:
+            print(
+                "HocrEditor.on_word_selected: "
+                f"word {word_id!r} not found in current parser model"
+            )
+            return
+
+        word = current_word
+
+        # ---------------------------------------------------------
+        # Only synchronize the currently visible bottom editor.
+        # ---------------------------------------------------------
+
+        current_widget = self.bottom_tabs.currentWidget()
+
+        # =========================================================
+        # Plain-text editor
+        # =========================================================
+
+        if current_widget is self.plain_text_editor:
+
+            pos = self.parser.find_plain_text_offset_for_word(word)
+
+            if pos is None:
+                print(
+                    "HocrEditor.on_word_selected: "
+                    f"no plain-text offset for word {word_id!r}"
+                )
+                return
+
+            text = word.text_bytes.decode(
+                self.parser.source_encoding,
+                errors="replace",
+            )
+
+            end_pos = pos + len(text)
+
+            cursor = self.plain_text_editor.textCursor()
+
+            cursor.setPosition(pos)
+            cursor.setPosition(
+                end_pos,
+                QTextCursor.KeepAnchor,
+            )
+
+            self.plain_text_editor.setTextCursor(cursor)
+            self.plain_text_editor.ensureCursorVisible()
+            self.plain_text_editor.setFocus()
+
+            return
+
+        # =========================================================
+        # HOCR source editor
+        # =========================================================
+
+        if current_widget is self.hocr_source_editor:
+
+            start_byte, end_byte = word.byte_range
+
+            start_char = self.source_byte_offset_to_char_offset(
+                start_byte
+            )
+            end_char = self.source_byte_offset_to_char_offset(
+                end_byte
+            )
+
+            cursor = self.hocr_source_editor.editor.textCursor()
+
+            cursor.setPosition(start_char)
+            cursor.setPosition(
+                end_char,
+                QTextCursor.KeepAnchor,
+            )
+
+            self.hocr_source_editor.editor.setTextCursor(cursor)
+            self.hocr_source_editor.editor.centerCursor()
+            self.hocr_source_editor.editor.setFocus()
+
+            return
+
+    @print_exceptions
     def source_byte_offset_to_char_offset(
-        self,
-        byte_offset: int,
-    ) -> int:
+            self,
+            byte_offset: int,
+        ) -> int:
         """
         Convert a byte offset from parser.source_bytes
         to a character offset used by QTextCursor.
@@ -1603,6 +2130,7 @@ class HocrEditor(QMainWindow):
 
         return len(prefix)
 
+    # TODO remove
     @print_exceptions
     def on_word_selected_zzzzzzzzzz(self, word):
         """
@@ -1693,7 +2221,12 @@ class HocrEditor(QMainWindow):
         # no. RuntimeError: Internal C++ object (WordItem) already deleted.
         # self.changed_word_id = word_id
         self.changed_word_id = bytes(word_id) # force-copy value
-        self.refresh_page_view()
+        # self.refresh_page_view()
+        if 1:
+            # FIXME stale WordItem
+            self.refresh_page_view()
+        elif 1:
+            self.refresh_page_view(force=True)
 
     @print_exceptions
     def on_code_cursor_changed(self, pos: int):
@@ -1808,6 +2341,7 @@ class HocrEditor(QMainWindow):
         self.source_editor.editor.setTextCursor(cursor)
         self.source_editor.editor.setFocus()
 
+    @print_exceptions
     def closeEvent(self, event):
         if not self.modified:
             event.accept()
@@ -1891,20 +2425,25 @@ class HocrEditor(QMainWindow):
             self.hocr_file = filename
             self.save_hocr()
 
+    # TODO remove. this is never called
     @print_exceptions
     def on_plain_text_edit(
-        self,
-        position: int,
-        chars_removed: int,
-        inserted_text: str,
-    ):
+            self,
+            position: int,
+            chars_removed: int,
+            inserted_text: str,
+        ):
+        print(f"HocrEditor.on_plain_text_edit")
         span = self.parser.span_at(position)
         if span is None:
+            print(f"HocrEditor.on_plain_text_edit: span is None")
             return
         if (
             span.kind == "word"
             and chars_removed > 0
         ):
+            # FIXME handle_word_edit does not exist
+            print(f"HocrEditor.on_plain_text_edit: calling handle_word_edit")
             self.handle_word_edit(
                 position,
                 chars_removed,
