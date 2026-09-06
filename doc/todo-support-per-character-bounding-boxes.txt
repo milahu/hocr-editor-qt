@@ -1,0 +1,3 @@
+per-character bounding boxes are produced by
+
+tesseract -c hocr_char_boxes=1
